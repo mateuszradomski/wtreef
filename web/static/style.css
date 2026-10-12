@@ -360,7 +360,7 @@ input {
 
 .control-group {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
 }
 
@@ -435,11 +435,13 @@ input {
 /*
  * A regex input: label, mono text, and a ".*" badge that says it is a
  * pattern. The error floats below the field so the bar never changes height.
+ * Items sit on a shared baseline: centering the 11px label against the 12px
+ * mono text leaves the label a pixel high.
  */
 .pattern-field {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
   width: 232px;
   height: 28px;
@@ -493,6 +495,7 @@ input {
 
 .pattern-badge {
   flex: none;
+  align-self: center;
   padding: 0 4px;
   border: 1px solid var(--line-2);
   border-radius: var(--radius-small);
