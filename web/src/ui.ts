@@ -1,13 +1,26 @@
-// Static chrome around the map: header, truncation banner and legend.
-// Untrusted text (titles, names) only ever goes through textContent.
+// Chrome around the map: header, truncation banner and legend. Only the
+// header's totals change after mount. Untrusted text (titles, names) only
+// ever goes through textContent.
 
 import type { PullRequestData } from "./decode.ts";
 import { append, element, link } from "./dom.ts";
-import { formatAdditions, formatCount, formatDeletions, plural } from "./format.ts";
+import { formatAdditions, formatCount, formatDeletions } from "./format.ts";
+import type { HeaderTotals } from "./totals.ts";
 
-export function createHeader(data: PullRequestData): HTMLElement {
+export interface Header {
+  readonly root: HTMLElement;
+  /** The dot, the line counts and the file count: what the totals tooltip describes. */
+  readonly totals: HTMLElement;
+  readonly filteredMark: HTMLElement;
+  readonly additions: HTMLElement;
+  readonly deletions: HTMLElement;
+  readonly files: HTMLElement;
+}
+
+/** The totals start empty; syncHeaderTotals fills them. */
+export function createHeader(data: PullRequestData): Header {
   const { pullRequest } = data;
-  const header = element("header", "pr-header");
+  const root = element("header", "pr-header");
   const brand = link("brand", "/", "wtreef", false);
 
   const identity = element("div", "pr-identity");
@@ -19,14 +32,28 @@ export function createHeader(data: PullRequestData): HTMLElement {
   append(identity, repository, number, title, state);
 
   const stats = element("div", "pr-stats mono");
-  const additions = element("span", "pr-additions", formatAdditions(pullRequest.additions));
-  const deletions = element("span", "pr-deletions", formatDeletions(pullRequest.deletions));
-  const files = element("span", "pr-files", plural(pullRequest.changedFiles, "file", "files"));
+  const filteredMark = element("span", "pr-filtered-mark");
+  filteredMark.setAttribute("role", "img");
+  filteredMark.setAttribute("aria-label", "Filtered:");
+  filteredMark.hidden = true;
+  const additions = element("span", "pr-additions");
+  const deletions = element("span", "pr-deletions");
+  const files = element("span", "pr-files");
+  const totals = append(element("span", "pr-totals"), filteredMark, append(element("span", "pr-churn"), additions, " ", deletions), files);
   const github = link("pr-github", pullRequest.url, "GitHub ↗", true);
   github.setAttribute("aria-label", "Open the pull request on GitHub");
-  append(stats, append(element("span", "pr-churn"), additions, " ", deletions), files, github);
+  append(stats, totals, github);
 
-  return append(header, brand, identity, stats);
+  append(root, brand, identity, stats);
+  return { root, totals, filteredMark, additions, deletions, files };
+}
+
+export function syncHeaderTotals(header: Header, totals: HeaderTotals): void {
+  header.filteredMark.hidden = !totals.filtered;
+  header.additions.textContent = formatAdditions(totals.additions);
+  header.deletions.textContent = formatDeletions(totals.deletions);
+  header.files.textContent = totals.filesText;
+  header.totals.title = totals.description;
 }
 
 /** Null when GitHub gave us everything; otherwise says what is missing and why. */

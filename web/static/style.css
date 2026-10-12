@@ -279,6 +279,23 @@ input {
   white-space: nowrap;
 }
 
+/* The dot, line counts and file count: one group, since one tooltip describes them. */
+.pr-totals {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Marks totals that only count the files the filters leave on the map. */
+.pr-filtered-mark {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-right: -8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 .pr-additions {
   color: var(--status-added-ink);
 }

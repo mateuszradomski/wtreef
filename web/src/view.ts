@@ -38,7 +38,8 @@ import {
   syncFileViewChoice,
 } from "./sidebar.ts";
 import { createTooltip, describeNode, fillTooltip, hideTooltip, moveTooltip, type Tooltip } from "./tooltip.ts";
-import { createHeader, createTruncationBanner } from "./ui.ts";
+import { describeHeaderTotals, sumShownChanges } from "./totals.ts";
+import { createHeader, createTruncationBanner, type Header, syncHeaderTotals } from "./ui.ts";
 
 /** Mirrors the narrow-screen breakpoint in style.css, where the sidebar stacks under the map. */
 const NARROW_LAYOUT_QUERY = "(max-width: 860px)";
@@ -80,6 +81,8 @@ export interface ViewState {
   pointerDirty: boolean;
   overlayDirty: boolean;
   controlsDirty: boolean;
+  /** Only filters change the header's totals: zoom and hover never do. */
+  totalsDirty: boolean;
   urlDirty: boolean;
   listDirty: boolean;
   highlightDirty: boolean;
@@ -97,6 +100,7 @@ interface MapElements {
 
 export interface View {
   readonly state: ViewState;
+  readonly header: Header;
   readonly map: MapElements;
   readonly controls: Controls;
   readonly sidebar: Sidebar;
@@ -116,10 +120,10 @@ export function mountPullRequestView(root: HTMLElement, data: PullRequestData, s
   const controls = createControls(controlsCallbacks(getView));
   const filterSection = createFilterSection(state.index, filterCallbacks(getView), !window.matchMedia(NARROW_LAYOUT_QUERY).matches);
   const sidebar = createSidebar(filterSection, state.tree, state.index, sidebarCallbacks(getView));
-  view = { state, map, controls, sidebar, tooltip: createTooltip() };
+  view = { state, header: createHeader(data), map, controls, sidebar, tooltip: createTooltip() };
 
   const shell = element("div", "pr-view");
-  shell.append(createHeader(data));
+  shell.append(view.header.root);
   const banner = createTruncationBanner(data, state.index.changedFiles.length);
   if (banner !== null) shell.append(banner);
   shell.append(controls.root);
@@ -231,6 +235,7 @@ function createState(data: PullRequestData, search: string): ViewState {
     pointerDirty: false,
     overlayDirty: true,
     controlsDirty: true,
+    totalsDirty: true,
     // Rewrite the URL once so ignored or invalid parameters disappear from it.
     urlDirty: true,
     listDirty: true,
@@ -311,6 +316,12 @@ function runDomUpdates(view: View): void {
     syncFilterSection(view.sidebar.filter, state.filters);
     syncFileViewChoice(view.sidebar, state.fileView);
     state.controlsDirty = false;
+  }
+  if (state.totalsDirty) {
+    assert(!state.weightsDirty, "totals are summed over the weights for the current filters");
+    const shown = sumShownChanges(state.tree, state.index, state.weights);
+    syncHeaderTotals(view.header, describeHeaderTotals(state.data.pullRequest, state.filters, shown));
+    state.totalsDirty = false;
   }
   if (state.listDirty) {
     renderChangedFiles(view.sidebar, changedFilesInput(state));
@@ -436,6 +447,7 @@ function applyFilters(view: View, next: Filters): void {
   state.filters = next;
   state.weightsDirty = true;
   state.controlsDirty = true;
+  state.totalsDirty = true;
   state.urlDirty = true;
   requestFrame(view);
 }
