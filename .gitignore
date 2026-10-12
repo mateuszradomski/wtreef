@@ -4,3 +4,4 @@
 !/web/dist/.gitkeep
 .DS_Store
 /.claude/
+/deploy/
