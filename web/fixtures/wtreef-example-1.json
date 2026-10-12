@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "pullRequest": {
+    "owner": "wtreef",
+    "repo": "example",
+    "number": 1,
+    "title": "Hand-written fixture: every node kind and file status",
+    "url": "https://github.com/wtreef/example/pull/1",
+    "author": "fixture",
+    "state": "merged",
+    "baseRef": "main",
+    "headRef": "feature",
+    "baseSha": "1111111111111111111111111111111111111111",
+    "headSha": "2222222222222222222222222222222222222222",
+    "additions": 435,
+    "deletions": 378,
+    "changedFiles": 7
+  },
+  "tree": {
+    "names":      ["", "src", "package-lock.json", "README.md", "docs", "LICENSE", "app.ts", "old.ts", "new-name.ts", "util", "index.ts", "components", "", "math.ts", "math.test.ts"],
+    "parents":    [-1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 9, 9],
+    "kinds":      [0, 0, 1, 1, 2, 1, 1, 1, 1, 0, 1, 2, 3, 1, 1],
+    "statuses":   [0, 0, 2, 2, 0, 0, 2, 3, 4, 0, 0, 0, 0, 1, 1],
+    "bytes":      [0, 0, 120000, 2000, 50000, 1069, 4200, 0, 900, 0, 300, 25000, 9000, 1500, 800],
+    "additions":  [0, 0, 300, 5, 0, 0, 40, 0, 0, 0, 0, 0, 0, 60, 30],
+    "deletions":  [0, 0, 280, 1, 0, 0, 12, 85, 0, 0, 0, 0, 0, 0, 0],
+    "fileCounts": [0, 0, 1, 1, 30, 1, 1, 1, 1, 0, 1, 12, 7, 1, 1]
+  },
+  "truncated": {
+    "files": false,
+    "tree": false
+  },
+  "fetchedAt": "2026-10-12T13:00:00Z"
+}
