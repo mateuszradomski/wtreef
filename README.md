@@ -1,59 +1,81 @@
 # wtreef
 
-See where a change lands in a codebase: a treemap of the repository with the
-changed files highlighted. Two ways to use it:
+See where your branch lands: a treemap of the repository with the changed
+files lit up.
 
-**Your branch, locally.** In any git checkout:
+```sh
+npx wtreef@latest
+```
 
-    npx wtreef@latest
+Run it in any git checkout. It opens http://localhost:3753 with everything
+your branch changed since it left the default branch: commits, staged and
+unstaged edits, untracked files. Reload the page to see new edits. Nothing
+leaves your machine.
 
-opens http://localhost:3753 with your current branch: everything since it
-left the default branch (`origin/HEAD`), uncommitted and untracked files
-included. Reload the page to see new edits. Needs `git`; nothing leaves your
-machine. `npx wtreef -h` lists the flags (`-base`, `-listen`, `-open`).
+## The map
 
-**A pull request, on the web.** Replace `github.com` with `wtreef.com` in a
-PR URL:
+Each file is a tile inside its folders. Color is added versus deleted lines;
+brightness is how many. Tile size is one of:
 
-    https://github.com/l2beat/l2beat/pull/13157
-    https://wtreef.com/l2beat/l2beat/pull/13157
+- **Churn**: lines added and removed. Where the branch does the most work.
+- **Context**: file size, unchanged files included. The changes in proportion
+  to the code around them.
 
-## Architecture
+Click a folder to zoom in, `Esc` to zoom out. `/` filters paths by regex.
+`H` hides the file or folder under the cursor. Right-click for more.
+
+## Flags
+
+```
+npx wtreef@latest [flags] [directory]
+
+-base REF      compare against REF (default: origin/HEAD, then origin/main,
+               origin/master, main, master)
+-listen ADDR   address to serve on (default 127.0.0.1:3753; if the port is
+               taken, another is picked)
+-open=false    don't open the browser
+```
+
+Needs `git` and Node 18+. The binary itself is native: Linux, macOS and
+Windows, x64 and arm64.
+
+## Pull requests
+
+The same binary can serve GitHub pull requests as a website. Host it
+yourself:
+
+```sh
+GITHUB_TOKEN=$(gh auth token) npx wtreef@latest serve -cache-dir /var/cache/wtreef
+```
+
+Then open `/owner/repo/pull/123` on it. It shows public repositories only;
+a fine-grained token with read access to public repositories is enough.
+`npx wtreef@latest serve -h` lists the flags.
+
+## Contributing
 
 - **Server** (`cmd/`, `internal/`): one Go binary, standard library only.
-  - `wtreef [directory]` (local): reads the branch with `git`
-    (`internal/localgit`) on every page load and serves it on 127.0.0.1.
-  - `wtreef serve` (website): fetches PR metadata and changed files (GitHub
-    GraphQL) and the head commit's tree (GitHub REST). Trees are keyed by
-    commit SHA and cached on disk forever (size-bounded). Concurrent
-    identical requests are coalesced.
+  Local mode reads the branch with `git` on every page load. `wtreef serve`
+  runs the website: pull request metadata and changed files from GitHub
+  GraphQL, the head commit's tree from GitHub REST, trees cached on disk by
+  commit SHA. Both prune the tree around the changes (`internal/prune`) and
+  serve it as compact JSON ([`docs/wire-format.md`](docs/wire-format.md)).
+- **Client** (`web/`): plain TypeScript, no runtime dependencies. A squarified
+  treemap on a canvas; the rest is DOM.
+- **npm** (`npm/`): a launcher plus one optional package per platform holding
+  the binary, as esbuild does it.
 
-  Both prune the tree around the changes (`internal/prune`) and serve it as
-  compact JSON.
-- **Client** (`web/`): plain TypeScript, no runtime dependencies. Squarified
-  treemap drawn on a canvas; controls and the file list are DOM. The server
-  tells the page which mode it is in through `<meta name="wtreef-mode">`.
-- **Contract**: [`docs/wire-format.md`](docs/wire-format.md).
-- **npm package** (`npm/`): a launcher plus one optional package per
-  platform holding the prebuilt binary, as esbuild does it. npm skips an
-  optional package it cannot fetch, so the launcher downloads a missing one
-  from the registry and checks it against the SHA-256 recorded at build time.
+```sh
+npm ci            # build-time tools only (esbuild, tsc)
+make dev          # website on http://127.0.0.1:8080, uses `gh auth token`
+make dev-local    # this checkout on http://localhost:3753
+make test check
+```
 
-## Develop
+To release, `make npm VERSION=x.y.z` stages the packages in `bin/npm` and
+`make npm-publish` publishes them. Publish exactly what one `make npm`
+staged: wtreef's `checksums.json` pins that build's binaries.
 
-    npm ci            # build-time tools only (esbuild, tsc)
-    make dev          # website on http://127.0.0.1:8080, uses `gh auth token`
-    make dev-local    # this checkout on http://localhost:3753
-    make test check
+## License
 
-## Build for the box
-
-    make linux        # bin/wtreef-linux-amd64
-
-## Publish to npm
-
-    make npm VERSION=0.1.0     # stages bin/npm/*: wtreef and @wtreef/<platform>
-    make npm-publish           # platform packages first, then wtreef
-
-Publish exactly what one `make npm` staged: wtreef's checksums.json pins the
-platform binaries of that build, and a rebuild differs (Go embeds the commit).
+MIT
