@@ -1,0 +1,154 @@
+/*
+ * Design tokens. Dark is the default; light comes from prefers-color-scheme.
+ * The canvas reads the --tile-*, --diff-*, --status-* and --label-* tokens at
+ * startup and whenever the scheme changes, so these are the single source of
+ * truth for chart colors too.
+ *
+ * Status and diff colors were validated with the dataviz palette checks
+ * (OKLab ΔE under protan/deutan simulation, normal-vision floor, 3:1 against
+ * the surface). Red/green is the diff convention, so green leans teal and red
+ * sits darker than green; that keeps the pair apart for deuteranopes.
+ * The *-ink variants are for text and clear 4.5:1 on bg, surface and surface-2.
+ */
+:root {
+  color-scheme: dark;
+
+  --bg: #0b0b0c;
+  --surface: #111113;
+  --surface-2: #17171a;
+  --line: #1f1f23;
+  --line-2: #2e2e33;
+  --fg: #ededef;
+  --fg-2: #a1a1aa;
+  /* Lightened from #71717a so 11px meta text clears 4.5:1 on every surface. */
+  --fg-3: #80808a;
+  --accent: #c5ac98;
+
+  --status-added: #1fab80;
+  --status-modified: #bf8b00;
+  --status-deleted: #c8363f;
+  --status-renamed: #737ade;
+  --status-added-ink: #1fab80;
+  --status-modified-ink: #bf8b00;
+  --status-deleted-ink: #f0555b;
+  --status-renamed-ink: #7f85e6;
+
+  --diff-add: #1fab80;
+  --diff-delete: #c8363f;
+  --diff-mixed: #7c7c84;
+
+  --tile-file: #1c1c20;
+  --tile-collapsed: #232329;
+  --tile-rest: #141417;
+  --tile-rest-hatch: #2a2a30;
+  --tile-renamed: #3b3f66;
+  --frame: #111113;
+  --frame-line: #222226;
+  --label-ink-light: #f4f4f5;
+  --label-ink-dark: #0b0b0c;
+  --hover-outline: #ededef;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --text-base: 13px;
+  --text-control: 12px;
+  --text-meta: 11px;
+  --radius: 6px;
+  --radius-small: 3px;
+  --header-height: 52px;
+  --sidebar-width: 320px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+
+    --bg: #ffffff;
+    --surface: #f8f8f7;
+    --surface-2: #f1f1ef;
+    --line: #ececea;
+    --line-2: #d6d4d0;
+    --fg: #18181b;
+    --fg-2: #52525b;
+    /* Darkened from #8a8a93 (3.4:1) so meta text clears 4.5:1. */
+    --fg-3: #6e6e77;
+    --accent: #806047;
+
+    --status-added: #26a67c;
+    --status-modified: #b8860b;
+    --status-deleted: #c8363f;
+    --status-renamed: #5157c4;
+    --status-added-ink: #027653;
+    --status-modified-ink: #935a00;
+    --status-deleted-ink: #b02a35;
+    --status-renamed-ink: #5157c4;
+
+    --diff-add: #26a67c;
+    --diff-delete: #c8363f;
+    --diff-mixed: #92929a;
+
+    --tile-file: #ebeae7;
+    --tile-collapsed: #e1dfdb;
+    --tile-rest: #f3f2f0;
+    --tile-rest-hatch: #d9d6d1;
+    --tile-renamed: #c9cbef;
+    --frame: #fafaf9;
+    --frame-line: #e4e3e0;
+    --label-ink-light: #ffffff;
+    --label-ink-dark: #18181b;
+    --hover-outline: #18181b;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  height: 100%;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.noscript {
+  max-width: 480px;
+  margin: 20vh auto;
+  padding: 0 24px;
+  color: var(--fg-2);
+}
