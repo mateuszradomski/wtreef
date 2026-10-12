@@ -12,7 +12,7 @@ your branch changed since it left the default branch: commits, staged and
 unstaged edits, untracked files. Reload the page to see new edits. Nothing
 leaves your machine.
 
-![A branch of l2beat in wtreef: a treemap of the repository with the changed files colored by added and deleted lines](https://raw.githubusercontent.com/mateuszradomski/wtreef/main/docs/screenshot.png)
+![A branch of Zed in wtreef: a treemap of the repository with the changed files colored by added and deleted lines](https://raw.githubusercontent.com/mateuszradomski/wtreef/main/docs/screenshot.png)
 
 ## The map
 
