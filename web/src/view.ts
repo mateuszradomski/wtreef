@@ -5,10 +5,10 @@
 
 import { assert } from "./assert.ts";
 import { NodeKind, type PullRequestData, type Tree } from "./decode.ts";
-import { computeDiffUrls } from "./diff.ts";
+import { computeDiffUrls, filesTabUrl } from "./diff.ts";
 import { append, element } from "./dom.ts";
 import { hitTest, isDirectoryFrameHit, NO_NODE } from "./hit.ts";
-import { computeLayout, createLayout, type Layout } from "./layout.ts";
+import { chainEnd, chainTop, computeLayout, createLayout, type Layout, LayoutFlag } from "./layout.ts";
 import {
   buildTreeIndex,
   computeSearchMatches,
@@ -22,7 +22,9 @@ import {
 } from "./model.ts";
 import { parseViewQuery, serializeViewQuery } from "./query.ts";
 import { type ChartPalette, computeTileStyles, drawBase, drawHighlight, readChartPalette, type TileStyles } from "./render.ts";
+import { createSidebar, highlightRow, renderFileList, type Sidebar } from "./sidebar.ts";
 import { createToolbar, syncToolbar, type Toolbar, type ToolbarCallbacks } from "./toolbar.ts";
+import { createTooltip, describeNode, fillTooltip, hideTooltip, moveTooltip, type Tooltip } from "./tooltip.ts";
 import { createBreadcrumbs, createHeader, createLegend, createTruncationBanner, renderBreadcrumbs } from "./ui.ts";
 
 export const HoverSource = { none: 0, canvas: 1, list: 2 } as const;
@@ -45,8 +47,12 @@ export interface ViewState {
   width: number;
   height: number;
   pixelRatio: number;
+  /** Pointer in canvas coordinates, for hit testing. */
   pointerX: number;
   pointerY: number;
+  /** Pointer in viewport coordinates, for placing the tooltip. */
+  pointerClientX: number;
+  pointerClientY: number;
   pointerInside: boolean;
   hoveredNode: number;
   hoverSource: HoverSource;
@@ -58,6 +64,8 @@ export interface ViewState {
   overlayDirty: boolean;
   controlsDirty: boolean;
   urlDirty: boolean;
+  listDirty: boolean;
+  highlightDirty: boolean;
   frameRequested: boolean;
 }
 
@@ -75,30 +83,34 @@ export interface View {
   readonly map: MapElements;
   readonly toolbar: Toolbar;
   readonly crumbList: HTMLElement;
+  readonly sidebar: Sidebar;
+  readonly tooltip: Tooltip;
 }
 
 export function mountPullRequestView(root: HTMLElement, data: PullRequestData, search: string): View {
   const state = createState(data, search);
   const map = createMapElements();
-  // Toolbar callbacks need the view and the view holds the toolbar; the
-  // callbacks only run after mount, by which time `view` is assigned.
+  // Toolbar and sidebar callbacks need the view, which holds them; they
+  // only run after mount, by which time `view` is assigned.
   let view: View | null = null;
-  const toolbar = createToolbar(
-    state.index,
-    toolbarCallbacks(() => {
-      assert(view !== null, "toolbar events fire only after mount");
-      return view;
-    }),
-  );
+  const getView = (): View => {
+    assert(view !== null, "events fire only after mount");
+    return view;
+  };
+  const toolbar = createToolbar(state.index, toolbarCallbacks(getView));
+  const sidebar = createSidebar({
+    onHoverRow: (node) => hoverFromList(getView(), node),
+    onLeaveRows: () => leaveList(getView()),
+  });
   const { nav, list } = createBreadcrumbs();
-  view = { state, map, toolbar, crumbList: list };
+  view = { state, map, toolbar, crumbList: list, sidebar, tooltip: createTooltip() };
 
   const shell = element("div", "pr-view");
   shell.append(createHeader(data));
   const banner = createTruncationBanner(data, state.index.changedFiles.length);
   if (banner !== null) shell.append(banner);
   shell.append(toolbar.root, append(element("div", "crumb-row"), nav, createLegend()));
-  shell.append(append(element("div", "pr-main"), map.container));
+  shell.append(append(element("div", "pr-main"), map.container, sidebar.root), view.tooltip.root);
   root.replaceChildren(shell);
   document.title = `${data.pullRequest.owner}/${data.pullRequest.repo}#${data.pullRequest.number} · wtreef`;
 
@@ -107,6 +119,8 @@ export function mountPullRequestView(root: HTMLElement, data: PullRequestData, s
   const mounted = view;
   void computeDiffUrls(data.pullRequest, state.index, data.tree.nodeCount).then((urls) => {
     mounted.state.diffUrls = urls;
+    mounted.state.listDirty = true;
+    requestFrame(mounted);
   });
   requestFrame(view);
   return view;
@@ -162,6 +176,8 @@ function createState(data: PullRequestData, search: string): ViewState {
     pixelRatio: window.devicePixelRatio || 1,
     pointerX: 0,
     pointerY: 0,
+    pointerClientX: 0,
+    pointerClientY: 0,
     pointerInside: false,
     hoveredNode: NO_NODE,
     hoverSource: HoverSource.none,
@@ -174,6 +190,8 @@ function createState(data: PullRequestData, search: string): ViewState {
     controlsDirty: true,
     // Rewrite the URL once so ignored or invalid parameters disappear from it.
     urlDirty: true,
+    listDirty: true,
+    highlightDirty: true,
     frameRequested: false,
   };
 }
@@ -214,11 +232,13 @@ function runFrame(view: View): void {
     computeSubtreeMembership(state.tree, state.zoomNode, state.insideZoom);
     state.weightsDirty = false;
     state.layoutDirty = true;
+    state.listDirty = true;
   }
   if (state.searchDirty) {
     computeSearchMatches(state.tree, state.index, state.filters.search, state.searchMatches);
     state.searchDirty = false;
     state.baseDirty = true;
+    state.listDirty = true;
   }
   if (state.layoutDirty) {
     relayout(view);
@@ -235,7 +255,8 @@ function runFrame(view: View): void {
     state.pointerDirty = false;
   }
   if (state.overlayDirty) {
-    drawHighlight(view.map.overlayContext, state.layout, state.palette, state.hoveredNode, state.pixelRatio);
+    const outlined = nearestLaidOutAncestor(state, state.hoveredNode);
+    drawHighlight(view.map.overlayContext, state.layout, state.palette, outlined, state.pixelRatio);
     state.overlayDirty = false;
   }
   runDomUpdates(view);
@@ -248,12 +269,45 @@ function runDomUpdates(view: View): void {
     renderBreadcrumbs(view.crumbList, state.tree, state.zoomNode, state.data.pullRequest.repo, (node) => zoomTo(view, node));
     state.controlsDirty = false;
   }
+  if (state.listDirty) {
+    renderFileList(view.sidebar, fileListInput(state));
+    state.listDirty = false;
+    state.highlightDirty = true;
+  }
+  if (state.highlightDirty) {
+    highlightRow(view.sidebar, state.hoveredNode, state.hoverSource === HoverSource.canvas);
+    state.highlightDirty = false;
+  }
   if (state.urlDirty) {
     const zoomPath = state.index.paths[state.zoomNode] ?? "";
     const query = serializeViewQuery({ filters: state.filters, zoomPath });
     history.replaceState(history.state, "", `${window.location.pathname}${query}`);
     state.urlDirty = false;
   }
+}
+
+function fileListInput(state: ViewState) {
+  return {
+    tree: state.tree,
+    index: state.index,
+    weights: state.weights,
+    searchMatches: state.searchMatches,
+    searchActive: state.filters.search.trim() !== "",
+    insideZoom: state.insideZoom,
+    diffUrls: state.diffUrls,
+    fallbackUrl: filesTabUrl(state.data.pullRequest),
+    zoomPath: state.index.paths[state.zoomNode] ?? "",
+  };
+}
+
+/** A hovered list row may point at a file too small to draw; outline the closest drawn folder instead. */
+function nearestLaidOutAncestor(state: ViewState, node: number): number {
+  let current = node;
+  for (let depth = 0; current > 0 && depth < state.tree.nodeCount; depth++) {
+    if (((state.layout.flags[current] ?? 0) & LayoutFlag.laidOut) !== 0) return current;
+    current = state.tree.parents[current] ?? 0;
+  }
+  return NO_NODE;
 }
 
 function sceneOf(state: ViewState) {
@@ -287,12 +341,42 @@ function updateCanvasHover(view: View): void {
   const node = state.pointerInside
     ? hitTest(state.tree, state.index, state.layout, state.pointerX, state.pointerY)
     : NO_NODE;
-  const hovered = node === state.layout.rootNode ? NO_NODE : node;
+  // Inside a folder chain, the chain's top owns the frame (and the outline); its end owns the details.
+  const hovered = node === state.layout.rootNode || node === NO_NODE ? NO_NODE : chainTop(state.tree, state.layout, node);
   map.overlay.classList.toggle("is-clickable", isClickable(state, hovered));
+  if (hovered === NO_NODE) {
+    hideTooltip(view.tooltip);
+  } else {
+    const described = chainEnd(state.layout, hovered);
+    if (view.tooltip.node !== described) fillTooltip(view.tooltip, described, describeNode(state.tree, state.index, described));
+    moveTooltip(view.tooltip, state.pointerClientX, state.pointerClientY);
+  }
   if (hovered === state.hoveredNode) return;
   state.hoveredNode = hovered;
   state.hoverSource = hovered === NO_NODE ? HoverSource.none : HoverSource.canvas;
   state.overlayDirty = true;
+  state.highlightDirty = true;
+}
+
+function hoverFromList(view: View, node: number): void {
+  const { state } = view;
+  if (state.hoveredNode === node && state.hoverSource === HoverSource.list) return;
+  state.hoveredNode = node;
+  state.hoverSource = HoverSource.list;
+  hideTooltip(view.tooltip);
+  state.overlayDirty = true;
+  state.highlightDirty = true;
+  requestFrame(view);
+}
+
+function leaveList(view: View): void {
+  const { state } = view;
+  if (state.hoverSource !== HoverSource.list) return;
+  state.hoveredNode = NO_NODE;
+  state.hoverSource = HoverSource.none;
+  state.overlayDirty = true;
+  state.highlightDirty = true;
+  requestFrame(view);
 }
 
 function isClickable(state: ViewState, node: number): boolean {
@@ -329,6 +413,8 @@ function attachMapEvents(view: View): void {
   map.overlay.addEventListener("pointermove", (event) => {
     state.pointerX = event.offsetX;
     state.pointerY = event.offsetY;
+    state.pointerClientX = event.clientX;
+    state.pointerClientY = event.clientY;
     state.pointerInside = true;
     state.pointerDirty = true;
     if (state.hoverSource === HoverSource.list) state.hoverSource = HoverSource.none;
@@ -364,7 +450,7 @@ export function activateNode(view: View, node: number): void {
     if (url !== "") window.open(url, "_blank", "noopener,noreferrer");
     return;
   }
-  if (isDirectoryFrameHit(state.tree, state.layout, node)) zoomTo(view, node);
+  if (isDirectoryFrameHit(state.tree, state.layout, node)) zoomTo(view, chainEnd(state.layout, chainTop(state.tree, state.layout, node)));
 }
 
 export function zoomTo(view: View, node: number): void {
@@ -377,6 +463,8 @@ export function zoomTo(view: View, node: number): void {
   state.weightsDirty = true;
   state.controlsDirty = true;
   state.urlDirty = true;
+  state.highlightDirty = true;
+  hideTooltip(view.tooltip);
   requestFrame(view);
 }
 

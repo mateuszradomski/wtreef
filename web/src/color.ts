@@ -16,7 +16,7 @@ export interface Oklab {
 }
 
 /** Every changed file sits at least this far from the unchanged tile color, so a one-line change is still visible. */
-export const DIFF_INTENSITY_FLOOR = 0.4;
+export const DIFF_INTENSITY_FLOOR = 0.35;
 
 const HEX_COLOR_PATTERN = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i;
 

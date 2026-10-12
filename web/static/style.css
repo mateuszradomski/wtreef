@@ -7,7 +7,9 @@
  * Status and diff colors were validated with the dataviz palette checks
  * (OKLab ΔE under protan/deutan simulation, normal-vision floor, 3:1 against
  * the surface). Red/green is the diff convention, so green leans teal and red
- * sits darker than green; that keeps the pair apart for deuteranopes.
+ * sits darker than green; that keeps the pair apart for deuteranopes. The
+ * light diff poles sit under 3:1 against the frame by design (large pale
+ * areas); tile labels and the file list carry the values, as the method requires.
  * The *-ink variants are for text and clear 4.5:1 on bg, surface and surface-2.
  */
 :root {
@@ -33,14 +35,15 @@
   --status-deleted-ink: #f0555b;
   --status-renamed-ink: #7f85e6;
 
-  --diff-add: #1fab80;
-  --diff-delete: #c8363f;
-  --diff-mixed: #7c7c84;
+  /* Tile poles are calmer than the status colors: tiles are large areas, and saturated fills belong on small marks. */
+  --diff-add: #339e7c;
+  --diff-delete: #a74541;
+  --diff-mixed: #77777a;
 
-  --tile-file: #1c1c20;
-  --tile-collapsed: #232329;
+  --tile-file: #1d1d22;
+  --tile-collapsed: #18181d;
   --tile-rest: #141417;
-  --tile-rest-hatch: #2a2a30;
+  --tile-rest-hatch: #26262c;
   --tile-renamed: #3b3f66;
   --frame: #111113;
   --frame-line: #222226;
@@ -83,9 +86,9 @@
     --status-deleted-ink: #b02a35;
     --status-renamed-ink: #5157c4;
 
-    --diff-add: #26a67c;
-    --diff-delete: #c8363f;
-    --diff-mixed: #92929a;
+    --diff-add: #54bb97;
+    --diff-delete: #cd5f5f;
+    --diff-mixed: #959598;
 
     --tile-file: #ebeae7;
     --tile-collapsed: #e1dfdb;
@@ -586,4 +589,294 @@ input {
 
 .legend-swatch-rest {
   background: repeating-linear-gradient(135deg, var(--tile-rest-hatch) 0 1px, var(--tile-rest) 1px 4px);
+}
+
+/* Sidebar: the file list, also the accessible twin of the canvas. */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin-left: 16px;
+  border-left: 1px solid var(--line);
+}
+
+.sidebar-header {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 16px 8px;
+}
+
+.sidebar-heading {
+  margin: 0;
+  overflow: hidden;
+  color: var(--fg-2);
+  font-size: var(--text-control);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-count {
+  flex: none;
+  color: var(--fg-3);
+  font-size: var(--text-meta);
+}
+
+.file-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0 8px 16px;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+.file-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  grid-template-rows: auto 2px;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 5px 8px 4px;
+  border-radius: var(--radius-small);
+  color: var(--fg-2);
+  font-size: var(--text-control);
+  text-decoration: none;
+}
+
+.file-row:hover,
+.file-row.is-highlighted {
+  background: var(--surface-2);
+}
+
+.file-status {
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  font-weight: 600;
+}
+
+.file-status.status-added {
+  color: var(--status-added-ink);
+}
+
+.file-status.status-modified {
+  color: var(--status-modified-ink);
+}
+
+.file-status.status-deleted {
+  color: var(--status-deleted-ink);
+}
+
+.file-status.status-renamed {
+  color: var(--status-renamed-ink);
+}
+
+.file-path {
+  display: flex;
+  min-width: 0;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* The directory gives way first, so the file name stays readable. */
+.file-directory {
+  flex: 0 1000 auto;
+  min-width: 2ch;
+  overflow: hidden;
+  color: var(--fg-3);
+  text-overflow: ellipsis;
+}
+
+.file-name {
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--fg);
+  text-overflow: ellipsis;
+}
+
+.file-churn {
+  display: flex;
+  gap: 6px;
+  font-size: var(--text-meta);
+}
+
+.file-churn .is-zero {
+  color: var(--fg-3);
+}
+
+/* Under the numbers, like a diffstat: length is log churn, the split is added vs deleted. */
+.churn-bar {
+  grid-column: 3;
+  display: flex;
+  justify-content: flex-end;
+  height: 2px;
+}
+
+.churn-bar-filled {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 1px;
+}
+
+.churn-bar-additions {
+  background: var(--status-added);
+}
+
+.churn-bar-deletions {
+  background: var(--status-deleted);
+}
+
+.file-list-footer {
+  margin: 0;
+  padding: 8px 16px 16px;
+  color: var(--fg-3);
+  font-size: var(--text-meta);
+}
+
+/* Tooltip: values lead (path, numbers), labels and hints follow in quieter ink. */
+.tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  max-width: 380px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: var(--text-control);
+  pointer-events: none;
+}
+
+.tooltip-title {
+  color: var(--fg);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.tooltip-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 4px;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.tooltip-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--fg);
+  font-family: var(--font-sans);
+}
+
+.tooltip-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.tooltip-swatch.status-added {
+  background: var(--status-added);
+}
+
+.tooltip-swatch.status-modified {
+  background: var(--status-modified);
+}
+
+.tooltip-swatch.status-deleted {
+  background: var(--status-deleted);
+}
+
+.tooltip-swatch.status-renamed {
+  background: var(--status-renamed);
+}
+
+.tooltip-hint {
+  margin-top: 6px;
+  color: var(--fg-3);
+  font-size: var(--text-meta);
+}
+
+/* Narrow screens: the page scrolls, the map takes most of the first screen, the list follows. */
+@media (max-width: 860px) {
+  .pr-view {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .pr-header {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 10px 12px;
+    gap: 4px 12px;
+  }
+
+  .pr-identity {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .pr-stats {
+    margin-left: auto;
+    gap: 12px;
+  }
+
+  .toolbar {
+    gap: 8px 20px;
+    padding: 10px 12px;
+  }
+
+  .toolbar-end {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .search,
+  .search-input {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  .crumb-row {
+    flex-wrap: wrap;
+    padding: 6px 12px;
+  }
+
+  .crumb-hint {
+    display: none;
+  }
+
+  .pr-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .map {
+    height: 62vh;
+    min-height: 300px;
+    margin: 0 12px 12px;
+  }
+
+  .sidebar {
+    margin-left: 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .file-list {
+    overflow: visible;
+  }
 }
