@@ -55,6 +55,13 @@ test("accepts pasted pull request references", () => {
   }
 });
 
+test("accepts pasted URLs from the host serving the page", () => {
+  const expected = { owner: "l2beat", repo: "l2beat", number: 13157 };
+  const input = "https://wtreef.example.com/l2beat/l2beat/pull/13157";
+  assert.deepEqual(parsePullRequestInput(input, "wtreef.example.com"), expected);
+  assert.equal(parsePullRequestInput(input), null);
+});
+
 test("rejects pasted text that is not a pull request", () => {
   const rejected = [
     "",

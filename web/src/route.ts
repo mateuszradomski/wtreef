@@ -66,13 +66,15 @@ export function parseRoute(pathname: string): Route {
 }
 
 const SHORT_FORM_PATTERN = /^([^/#?\s]+)\/([^/#?\s]+)#([0-9]+)$/;
-const HOST_PREFIX_PATTERN = /^(?:https?:\/\/)?(?:www\.)?(?:github\.com|wtreef\.com)\//i;
+const SCHEME_PREFIX_PATTERN = /^(?:https?:\/\/)?(?:www\.)?/i;
+const KNOWN_HOSTS = ["github.com", "wtreef.com"];
 
 /**
  * Accepts what people paste: `https://github.com/o/r/pull/n[/...]`, the same
- * on wtreef.com, `o/r/pull/n`, and `o/r#n`. Returns null for anything else.
+ * on wtreef.com or `ownHost` (where this page is served), `o/r/pull/n`, and
+ * `o/r#n`. Returns null for anything else.
  */
-export function parsePullRequestInput(input: string): PullRequestReference | null {
+export function parsePullRequestInput(input: string, ownHost = ""): PullRequestReference | null {
   const text = input.trim();
   const shortForm = SHORT_FORM_PATTERN.exec(text);
   if (shortForm !== null) {
@@ -80,7 +82,10 @@ export function parsePullRequestInput(input: string): PullRequestReference | nul
     if (owner === undefined || repo === undefined || numberText === undefined) return null;
     return parseSegments([owner, repo, "pull", numberText]);
   }
-  const withoutHost = text.replace(HOST_PREFIX_PATTERN, "");
+  const withoutScheme = text.replace(SCHEME_PREFIX_PATTERN, "");
+  const lowered = withoutScheme.toLowerCase();
+  const host = [...KNOWN_HOSTS, ownHost.toLowerCase()].find((name) => name !== "" && lowered.startsWith(`${name}/`));
+  const withoutHost = host === undefined ? text : withoutScheme.slice(host.length + 1);
   const pathOnly = withoutHost.split(/[?#]/, 1)[0] ?? "";
   return parseSegments(pathOnly.split("/"));
 }

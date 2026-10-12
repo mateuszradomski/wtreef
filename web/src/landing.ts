@@ -40,7 +40,7 @@ export function mountLanding(root: HTMLElement): void {
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    const reference = parsePullRequestInput(input.value);
+    const reference = parsePullRequestInput(input.value, window.location.host);
     error.hidden = reference !== null;
     input.setAttribute("aria-invalid", reference === null ? "true" : "false");
     if (reference !== null) window.location.assign(pullRequestPath(reference));
@@ -55,7 +55,7 @@ export function mountLanding(root: HTMLElement): void {
     "or replace ",
     element("span", "mono", "github.com"),
     " with ",
-    element("span", "mono", "wtreef.com"),
+    element("span", "mono", window.location.host),
     " in any pull request URL",
   );
   const examples = element("ul", "landing-examples");
