@@ -35,7 +35,7 @@ const SIZE_MODE_LABELS: ReadonlyArray<readonly [SizeMode, string, string]> = [
   [SizeMode.churn, "Churn", "Size tiles by lines added plus lines removed"],
 ];
 
-export function typeLabel(key: string): string {
+function typeLabel(key: string): string {
   if (key === TYPE_KEY_NONE) return "no ext";
   if (key === TYPE_KEY_OTHER) return "other";
   return `.${key}`;

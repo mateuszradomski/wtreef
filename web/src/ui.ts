@@ -33,8 +33,11 @@ export function createHeader(data: PullRequestData): HTMLElement {
 export function createTruncationBanner(data: PullRequestData, shownChangedFiles: number): HTMLElement | null {
   const notes: string[] = [];
   if (data.truncatedFiles) {
+    const total = data.pullRequest.changedFiles;
     notes.push(
-      `GitHub listed ${formatCount(shownChangedFiles)} of ${formatCount(data.pullRequest.changedFiles)} changed files; the rest are not shown.`,
+      shownChangedFiles < total
+        ? `GitHub listed ${formatCount(shownChangedFiles)} of ${formatCount(total)} changed files; the rest are not shown.`
+        : "GitHub's list of changed files for this pull request is incomplete; some files may be missing.",
     );
   }
   if (data.truncatedTree) {

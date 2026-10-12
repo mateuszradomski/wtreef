@@ -10,7 +10,7 @@ export type FetchResult =
   | { readonly kind: "unreachable" }
   | { readonly kind: "invalidResponse"; readonly httpStatus: number };
 
-export function apiPath(reference: PullRequestReference): string {
+function apiPath(reference: PullRequestReference): string {
   const owner = encodeURIComponent(reference.owner);
   const repo = encodeURIComponent(reference.repo);
   return `/api/pr/${owner}/${repo}/${reference.number}`;

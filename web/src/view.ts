@@ -27,8 +27,8 @@ import { createToolbar, syncToolbar, type Toolbar, type ToolbarCallbacks } from 
 import { createTooltip, describeNode, fillTooltip, hideTooltip, moveTooltip, type Tooltip } from "./tooltip.ts";
 import { createBreadcrumbs, createHeader, createLegend, createTruncationBanner, renderBreadcrumbs } from "./ui.ts";
 
-export const HoverSource = { none: 0, canvas: 1, list: 2 } as const;
-export type HoverSource = (typeof HoverSource)[keyof typeof HoverSource];
+const HoverSource = { none: 0, canvas: 1, list: 2 } as const;
+type HoverSource = (typeof HoverSource)[keyof typeof HoverSource];
 
 export interface ViewState {
   readonly data: PullRequestData;
@@ -217,7 +217,7 @@ function createMapElements(): MapElements {
   return { container, base, overlay, baseContext, overlayContext, empty };
 }
 
-export function requestFrame(view: View): void {
+function requestFrame(view: View): void {
   if (view.state.frameRequested) return;
   view.state.frameRequested = true;
   requestAnimationFrame(() => runFrame(view));
@@ -442,7 +442,7 @@ function attachMapEvents(view: View): void {
 }
 
 /** Click or Enter on a node: changed files open their diff, directories zoom in. */
-export function activateNode(view: View, node: number): void {
+function activateNode(view: View, node: number): void {
   const { state } = view;
   if (node === NO_NODE) return;
   if (isChangedFile(state.tree, node)) {
@@ -453,7 +453,7 @@ export function activateNode(view: View, node: number): void {
   if (isDirectoryFrameHit(state.tree, state.layout, node)) zoomTo(view, chainEnd(state.layout, chainTop(state.tree, state.layout, node)));
 }
 
-export function zoomTo(view: View, node: number): void {
+function zoomTo(view: View, node: number): void {
   const { state } = view;
   assert(state.tree.kinds[node] === NodeKind.directory, "only directories can be zoomed into");
   if (node === state.zoomNode) return;
@@ -515,7 +515,7 @@ function watchPixelRatio(view: View): void {
   query.addEventListener("change", onChange);
 }
 
-export function isTypingTarget(target: EventTarget | null): boolean {
+function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
 }

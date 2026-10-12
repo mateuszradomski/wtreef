@@ -1,8 +1,6 @@
 // Tiny DOM helpers. Text always goes through textContent: paths, titles
 // and names come from GitHub and are untrusted.
 
-import { assert } from "./assert.ts";
-
 export function element<Tag extends keyof HTMLElementTagNameMap>(
   tag: Tag,
   className: string,
@@ -36,13 +34,4 @@ export function append(parent: HTMLElement, ...children: ReadonlyArray<HTMLEleme
     parent.append(child);
   }
   return parent;
-}
-
-export function requireElement<Type extends Element>(found: Type | null, description: string): Type {
-  assert(found !== null, `missing element: ${description}`);
-  return found;
-}
-
-export function setVisible(target: HTMLElement, visible: boolean): void {
-  target.hidden = !visible;
 }

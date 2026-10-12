@@ -11,7 +11,7 @@ import type { TreeIndex } from "./model.ts";
 import { statusClassName, statusLabel, statusLetter, statusOf } from "./status.ts";
 
 /** Rendering is bounded; past this, filters are the better tool than scrolling. */
-export const LIST_ROWS_MAX = 400;
+const LIST_ROWS_MAX = 400;
 const NO_NODE = -1;
 
 export interface SidebarCallbacks {
@@ -109,10 +109,14 @@ function createRow(tree: Tree, index: TreeIndex, node: number, input: FileListIn
   const letter = element("span", `file-status ${statusClassName(status)}`, statusLetter(status));
   letter.title = statusLabel(status);
 
-  const slash = path.lastIndexOf("/");
+  // Inside a zoomed folder, the folder's own path is in the heading; rows show what is below it.
+  const zoomPrefix = input.zoomPath === "" ? "" : `${input.zoomPath}/`;
+  const shownPath = path.startsWith(zoomPrefix) ? path.slice(zoomPrefix.length) : path;
+  const slash = shownPath.lastIndexOf("/");
   const pathElement = element("span", "file-path");
-  if (slash >= 0) pathElement.append(element("span", "file-directory", path.slice(0, slash + 1)));
-  pathElement.append(element("span", "file-name", path.slice(slash + 1)));
+  if (slash >= 0) pathElement.append(element("span", "file-directory", shownPath.slice(0, slash + 1)));
+  pathElement.append(element("span", "file-name", shownPath.slice(slash + 1)));
+  pathElement.title = path;
 
   const additions = tree.additions[node] ?? 0;
   const deletions = tree.deletions[node] ?? 0;

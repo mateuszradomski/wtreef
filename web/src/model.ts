@@ -7,9 +7,9 @@ import { FileStatus, NodeKind, type Tree } from "./decode.ts";
 
 /** Changed files with no head bytes (deleted, or missing from a truncated tree) are sized from their churn. */
 export const ESTIMATED_BYTES_PER_CHANGED_LINE = 40;
-export const ESTIMATED_BYTES_MIN = 40;
+const ESTIMATED_BYTES_MIN = 40;
 /** Type chips show this many extensions; the rest fold into "other". */
-export const TYPE_BUCKETS_NAMED_MAX = 8;
+const TYPE_BUCKETS_NAMED_MAX = 8;
 export const TYPE_KEY_NONE = "(none)";
 export const TYPE_KEY_OTHER = "(other)";
 const TYPE_BUCKET_NONE = 255;
@@ -248,17 +248,17 @@ function sortChangedFiles(tree: Tree, paths: readonly string[]): Uint32Array {
 }
 
 /** Context weight: head bytes, or an estimate from churn when a changed file has none. */
-export function contextWeightOfChangedFile(bytes: number, additions: number, deletions: number): number {
+function contextWeightOfChangedFile(bytes: number, additions: number, deletions: number): number {
   if (bytes > 0) return bytes;
   return Math.max(ESTIMATED_BYTES_MIN, (additions + deletions) * ESTIMATED_BYTES_PER_CHANGED_LINE);
 }
 
-export function churnWeightOfChangedFile(additions: number, deletions: number): number {
+function churnWeightOfChangedFile(additions: number, deletions: number): number {
   return Math.max(additions + deletions, 1);
 }
 
 /** Bitmask over type bucket indices, built once per filter change. */
-export function hiddenTypeMask(index: TreeIndex, hiddenTypes: ReadonlySet<string>): number {
+function hiddenTypeMask(index: TreeIndex, hiddenTypes: ReadonlySet<string>): number {
   let mask = 0;
   for (let bucket = 0; bucket < index.typeBuckets.length; bucket++) {
     if (hiddenTypes.has(index.typeBuckets[bucket]?.key ?? "")) mask |= 1 << bucket;

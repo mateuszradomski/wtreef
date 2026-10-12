@@ -28,7 +28,7 @@ const SEARCH_LENGTH_MAX = 200;
 const ZOOM_PATH_LENGTH_MAX = 4096;
 const LIST_ITEMS_MAX = 64;
 
-export const STATUS_NAMES: ReadonlyArray<readonly [FileStatus, string]> = [
+const STATUS_NAMES: ReadonlyArray<readonly [FileStatus, string]> = [
   [FileStatus.added, "added"],
   [FileStatus.modified, "modified"],
   [FileStatus.deleted, "deleted"],

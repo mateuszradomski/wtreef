@@ -15,7 +15,7 @@ export type Route =
 const OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const REPO_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
 const PULL_NUMBER_PATTERN = /^[1-9][0-9]{0,9}$/;
-export const PULL_NUMBER_MAX = 2147483647;
+const PULL_NUMBER_MAX = 2147483647;
 const PATH_SEGMENTS_MAX = 64;
 
 export function isOwnerName(text: string): boolean {

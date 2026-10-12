@@ -182,8 +182,8 @@ function decodeColumn<Column extends IntegerColumn>(
   return column;
 }
 
-/** Checks every tree invariant from the contract. Exported for tests that build trees directly. */
-export function checkTreeInvariants(tree: Tree): void {
+/** Checks every tree invariant from the contract. */
+function checkTreeInvariants(tree: Tree): void {
   assert(tree.names[0] === "", "root name must be empty");
   assert(tree.parents[0] === -1, "root parent must be -1");
   assert(tree.kinds[0] === NodeKind.directory, "root must be a directory");

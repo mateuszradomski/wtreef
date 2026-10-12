@@ -254,7 +254,7 @@ function drawHatch(context: CanvasRenderingContext2D, color: string, x: number, 
 const ELLIPSIS = "…";
 
 /** Longest prefix that fits, with an ellipsis; binary search keeps measureText calls logarithmic. */
-export function fitText(context: CanvasRenderingContext2D, text: string, widthMax: number): string {
+function fitText(context: CanvasRenderingContext2D, text: string, widthMax: number): string {
   if (widthMax <= 0) return "";
   if (context.measureText(text).width <= widthMax) return text;
   if (context.measureText(ELLIPSIS).width > widthMax) return "";
