@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"wtreef/internal/cache"
+	"wtreef/internal/github"
 	"wtreef/internal/pullrequest"
 )
 
@@ -33,11 +34,15 @@ type fakeGitHub struct {
 	pullRequestError error
 	// release, when set, blocks FetchPullRequest until it is closed.
 	release chan struct{}
-	pull    pullrequest.PullRequest
-	tree    pullrequest.Tree
+	// treeRelease, when set, blocks FetchTree until it is closed.
+	treeRelease chan struct{}
+	pull        pullrequest.PullRequest
+	tree        pullrequest.Tree
 }
 
-func (fake *fakeGitHub) FetchPullRequest(ctx context.Context, id pullrequest.ID) (pullrequest.PullRequest, error) {
+func (fake *fakeGitHub) FetchPullRequest(
+	ctx context.Context, id pullrequest.ID, progress *github.Progress,
+) (pullrequest.PullRequest, error) {
 	fake.pullRequestCalls.Add(1)
 	if fake.release != nil {
 		<-fake.release
@@ -48,8 +53,13 @@ func (fake *fakeGitHub) FetchPullRequest(ctx context.Context, id pullrequest.ID)
 	return fake.pull, nil
 }
 
-func (fake *fakeGitHub) FetchTree(ctx context.Context, repository pullrequest.Repository, sha pullrequest.CommitSHA) (pullrequest.Tree, error) {
+func (fake *fakeGitHub) FetchTree(
+	ctx context.Context, repository pullrequest.Repository, sha pullrequest.CommitSHA, progress *github.Progress,
+) (pullrequest.Tree, error) {
 	fake.treeCalls.Add(1)
+	if fake.treeRelease != nil {
+		<-fake.treeRelease
+	}
 	return fake.tree, nil
 }
 
@@ -196,6 +206,9 @@ func TestRoutingAndSecurityHeaders(t *testing.T) {
 		{"GET", "/api/pr/", 400, json},
 		{"GET", "/api/pr", 404, json},
 		{"GET", "/api/other", 404, json},
+		{"GET", "/api/progress/l2beat/l2beat/13157", 200, json},
+		{"GET", "/api/progress/l2beat/l2beat/0", 400, json},
+		{"GET", "/api/progress/", 400, json},
 	}
 	server := newTestServer(t, testServerOptions{github: newFakeGitHub(t)})
 	for _, route := range routes {

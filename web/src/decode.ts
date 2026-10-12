@@ -110,6 +110,19 @@ export interface BranchData {
 /** Everything the treemap view can show. */
 export type TreemapData = PullRequestData | BranchData;
 
+export const LOAD_STAGES = ["idle", "pullRequest", "files", "tree"] as const;
+export type LoadStage = (typeof LOAD_STAGES)[number];
+
+/** How far the server has come building a pull request (GET /api/progress). */
+export interface LoadProgress {
+  readonly stage: LoadStage;
+  readonly filesFetched: number;
+  /** 0 until the first page of changed files arrives. */
+  readonly filesTotal: number;
+  /** The tree's size is unknown until it has all been read. */
+  readonly treeEntries: number;
+}
+
 export interface ApiError {
   readonly code: ApiErrorCode;
   readonly message: string;
@@ -120,6 +133,8 @@ export interface ApiError {
 
 const WIRE_FORMAT_VERSION = 1;
 const UINT32_MAX = 4294967295;
+/** GitHub lists at most this many changed files of a pull request. */
+const LISTED_FILES_MAX = 3000;
 const SHA_PATTERN = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 const GITHUB_URL_PREFIX = "https://github.com/";
 
@@ -344,6 +359,23 @@ function checkDirectoriesContainChanges(tree: Tree): void {
 }
 
 /** Decodes a non-200 API response. `json` is the parsed body. */
+export function decodeLoadProgress(json: unknown): LoadProgress {
+  const object = expectObject(json, "progress");
+  const stage = expectString(object["stage"], "stage");
+  assert(isLoadStage(stage), "stage must be a known stage");
+  const filesTotal = expectInteger(object["filesTotal"], 0, LISTED_FILES_MAX, "filesTotal");
+  return {
+    stage,
+    filesFetched: expectInteger(object["filesFetched"], 0, filesTotal, "filesFetched"),
+    filesTotal,
+    treeEntries: expectInteger(object["treeEntries"], 0, UINT32_MAX, "treeEntries"),
+  };
+}
+
+function isLoadStage(text: string): text is LoadStage {
+  return (LOAD_STAGES as readonly string[]).includes(text);
+}
+
 export function decodeApiError(httpStatus: number, json: unknown, retryAfterHeader: string | null, nowMs: number): ApiError {
   const object = expectObject(json, "error response");
   const code = expectString(object["error"], "error");

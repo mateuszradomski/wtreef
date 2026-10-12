@@ -1830,6 +1830,32 @@ input {
   animation: loading-slide 1.4s ease-in-out infinite;
 }
 
+/* Once the server reports something measurable, the bar fills instead. */
+.loading-bar-progress {
+  position: absolute;
+  inset: 0;
+  display: none;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.4s ease-out;
+}
+
+.loading-bar.is-measured .loading-bar-progress {
+  display: block;
+}
+
+.loading-bar.is-measured .loading-bar-fill {
+  display: none;
+}
+
+.loading-status {
+  margin: 10px 0 0;
+  color: var(--fg-3);
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
 @keyframes loading-slide {
   from {
     transform: translateX(-100%);
@@ -1844,6 +1870,10 @@ input {
     width: 100%;
     animation: none;
     opacity: 0.5;
+  }
+
+  .loading-bar-progress {
+    transition: none;
   }
 }
 

@@ -39,12 +39,16 @@ func TestFetchTreeKeepsBlobsAndSubmodules(t *testing.T) {
 	}
 	client, _ := newTestClient(t, fake, 4)
 	repository, sha := testRepositoryAndSHA(t)
-	tree, err := client.FetchTree(context.Background(), repository, sha)
+	progress := &Progress{}
+	tree, err := client.FetchTree(context.Background(), repository, sha, progress)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !tree.Truncated() || tree.Len() != 3 {
 		t.Fatalf("tree truncated = %v, len = %d", tree.Truncated(), tree.Len())
+	}
+	if got := progress.Snapshot().TreeEntries; got != 3 {
+		t.Fatalf("progress counts %d tree entries, want 3", got)
 	}
 	wantPaths := []string{"README.md", "packages/a.ts", "vendor/lib"}
 	wantSizes := []int64{120, 0, 0}
@@ -86,7 +90,7 @@ func TestFetchTreeRejectsMalformedResponses(t *testing.T) {
 			fake.tree = func(writer http.ResponseWriter) { fmt.Fprint(writer, body) }
 			client, _ := newTestClient(t, fake, 4)
 			repository, sha := testRepositoryAndSHA(t)
-			_, err := client.FetchTree(context.Background(), repository, sha)
+			_, err := client.FetchTree(context.Background(), repository, sha, nil)
 			if !errors.Is(err, ErrUpstream) {
 				t.Fatalf("error = %v, want ErrUpstream", err)
 			}
@@ -110,16 +114,16 @@ func TestFetchTreeStatusMapping(t *testing.T) {
 	repository, sha := testRepositoryAndSHA(t)
 
 	status.Store(http.StatusNotFound)
-	if _, err := client.FetchTree(context.Background(), repository, sha); !errors.Is(err, ErrUpstream) {
+	if _, err := client.FetchTree(context.Background(), repository, sha, nil); !errors.Is(err, ErrUpstream) {
 		t.Fatalf("404 error = %v, want ErrUpstream", err)
 	}
 	status.Store(http.StatusForbidden)
 	var rateLimit *RateLimitError
-	if _, err := client.FetchTree(context.Background(), repository, sha); !errors.As(err, &rateLimit) {
+	if _, err := client.FetchTree(context.Background(), repository, sha, nil); !errors.As(err, &rateLimit) {
 		t.Fatalf("403 error = %v, want RateLimitError", err)
 	}
 	status.Store(http.StatusBadGateway)
-	if _, err := client.FetchTree(context.Background(), repository, sha); !errors.Is(err, ErrUpstream) {
+	if _, err := client.FetchTree(context.Background(), repository, sha, nil); !errors.Is(err, ErrUpstream) {
 		t.Fatalf("502 error = %v, want ErrUpstream", err)
 	}
 }
@@ -150,7 +154,7 @@ func TestOutboundConcurrencyIsCapped(t *testing.T) {
 	group := sync.WaitGroup{}
 	for range callers {
 		group.Go(func() {
-			if _, err := client.FetchTree(context.Background(), repository, sha); err != nil {
+			if _, err := client.FetchTree(context.Background(), repository, sha, nil); err != nil {
 				t.Error(err)
 			}
 		})
@@ -179,7 +183,7 @@ func TestSendGivesUpWhenContextEndsWhileWaitingForSlot(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	repository, sha := testRepositoryAndSHA(t)
-	_, err := client.FetchTree(ctx, repository, sha)
+	_, err := client.FetchTree(ctx, repository, sha, nil)
 	if !errors.Is(err, ErrUpstream) || !strings.Contains(err.Error(), "deadline") {
 		t.Fatalf("error = %v, want ErrUpstream after deadline", err)
 	}

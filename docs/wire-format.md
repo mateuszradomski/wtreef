@@ -21,6 +21,7 @@ One binary serves the page in two modes. `index.html` carries
 | `GET /{owner}/{repo}/pull/{number}/...` | same as above; GitHub sub-tabs (`/files`, `/commits`) are accepted so a pasted URL always works |
 | `GET /assets/{name}`                    | files from `web/dist` except `index.html`  |
 | `GET /api/pr/{owner}/{repo}/{number}`   | JSON, see below                            |
+| `GET /api/progress/{owner}/{repo}/{number}` | JSON, see [Progress](#get-apiprogressownerreponumber) |
 | `GET /healthz`                          | `200 ok`                                   |
 | anything else                           | `404`                                      |
 
@@ -157,6 +158,34 @@ All errors are JSON: `{ "error": "<code>", "message": "<human readable>" }`.
 | 502    | `upstream_error`      | GitHub failed or returned something unexpected               |
 | 503    | `github_rate_limited` | the server's GitHub token is out of budget; `Retry-After` set |
 | 500    | `local_error`         | local mode only: git failed; `message` is git's error, for the person who ran wtreef |
+
+## `GET /api/progress/{owner}/{repo}/{number}`
+
+How far the server has come building the response for that pull request,
+so the loading page can show a progress bar while `GET /api/pr/…` is
+pending. The page polls it a few times a second, so it does not count
+against the per-client rate limit. Always `Cache-Control: no-store`.
+
+```jsonc
+{
+  "stage": "files",      // "idle" | "pullRequest" | "files" | "tree"
+  "filesFetched": 1200,  // changed files listed so far, ≤ filesTotal
+  "filesTotal": 2800,    // changed files GitHub will list (≤ 3000); 0 until the first page arrives
+  "treeEntries": 0       // files of the repository tree read so far; its total is unknown until the end
+}
+```
+
+| stage         | meaning                                                              |
+|---------------|----------------------------------------------------------------------|
+| `idle`        | no build is running: not started yet, finished, or served from cache |
+| `pullRequest` | waiting for the metadata and the first page of changed files        |
+| `files`       | fetching the remaining pages of changed files                       |
+| `tree`        | reading the head commit's tree; skipped when it is already stored    |
+
+Counts are `0` where they do not apply. Within one build the stage only moves
+forward. A private repository's build fails on its first page, so its
+progress never shows more than `pullRequest`. A path that does not parse is
+`400 bad_request`; nothing else is an error.
 
 ## Local mode
 

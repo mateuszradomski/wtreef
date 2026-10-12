@@ -34,8 +34,9 @@ type treeListing struct {
 
 // FetchTree lists the blobs and submodules of a commit. Fork heads resolve
 // in the base repository because GitHub keeps refs/pull/N/head there.
+// progress, which may be nil, counts the entries as they stream in.
 func (client *Client) FetchTree(
-	ctx context.Context, repository pullrequest.Repository, sha pullrequest.CommitSHA,
+	ctx context.Context, repository pullrequest.Repository, sha pullrequest.CommitSHA, progress *Progress,
 ) (pullrequest.Tree, error) {
 	url := client.restBaseURL + "/repos/" + repository.Owner() + "/" + repository.Name() +
 		"/git/trees/" + sha.String() + "?recursive=1"
@@ -54,7 +55,7 @@ func (client *Client) FetchTree(
 	if err := client.checkStatus(response, treeOperationName); err != nil {
 		return pullrequest.Tree{}, err
 	}
-	listing, err := decodeTreeListing(io.LimitReader(response.Body, treeResponseBytesMax))
+	listing, err := decodeTreeListing(io.LimitReader(response.Body, treeResponseBytesMax), progress)
 	if err != nil {
 		client.logger.Warn("github tree malformed", "repository", repository.String(), "sha", sha.String(), "error", err)
 		return pullrequest.Tree{}, upstreamError(treeOperationName, err.Error())
@@ -69,7 +70,7 @@ func (client *Client) FetchTree(
 
 // decodeTreeListing walks the top-level object token by token so entries are
 // decoded one at a time instead of materializing the whole document.
-func decodeTreeListing(reader io.Reader) (treeListing, error) {
+func decodeTreeListing(reader io.Reader, progress *Progress) (treeListing, error) {
 	decoder := json.NewDecoder(reader)
 	if err := expectDelimiter(decoder, '{'); err != nil {
 		return treeListing{}, err
@@ -87,7 +88,7 @@ func decodeTreeListing(reader io.Reader) (treeListing, error) {
 		}
 		switch key {
 		case "tree":
-			listing.paths, listing.sizes, err = decodeTreeEntries(decoder)
+			listing.paths, listing.sizes, err = decodeTreeEntries(decoder, progress)
 			sawTree = true
 		case "truncated":
 			err = decoder.Decode(&listing.truncated)
@@ -112,7 +113,7 @@ func decodeTreeListing(reader io.Reader) (treeListing, error) {
 	return listing, nil
 }
 
-func decodeTreeEntries(decoder *json.Decoder) ([]string, []int64, error) {
+func decodeTreeEntries(decoder *json.Decoder, progress *Progress) ([]string, []int64, error) {
 	if err := expectDelimiter(decoder, '['); err != nil {
 		return nil, nil, err
 	}
@@ -121,6 +122,9 @@ func decodeTreeEntries(decoder *json.Decoder) ([]string, []int64, error) {
 	for entryIndex := 0; decoder.More(); entryIndex++ {
 		if entryIndex == pullrequest.TreeEntriesMax {
 			return nil, nil, errors.New("tree response has too many entries")
+		}
+		if entryIndex%treeEntriesReportInterval == 0 {
+			progress.setTreeEntries(len(paths))
 		}
 		// Declared per iteration: Decode leaves absent fields untouched, so a
 		// reused value would leak the previous entry's size.
@@ -140,6 +144,7 @@ func decodeTreeEntries(decoder *json.Decoder) ([]string, []int64, error) {
 	if err := expectDelimiter(decoder, ']'); err != nil {
 		return nil, nil, err
 	}
+	progress.setTreeEntries(len(paths))
 	assert(len(paths) == len(sizes), "paths and sizes grow together")
 	return paths, sizes, nil
 }

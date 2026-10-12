@@ -2,7 +2,7 @@
 // path to the landing page or a pull request; the local server only ever
 // serves its one branch, at "/".
 
-import { fetchBranchData, fetchPullRequestData } from "./api.ts";
+import { fetchBranchData, fetchPullRequestData, watchPullRequestProgress } from "./api.ts";
 import { assert } from "./assert.ts";
 import { mountLanding } from "./landing.ts";
 import { parseRoute, type PullRequestReference } from "./route.ts";
@@ -35,8 +35,10 @@ function main(): void {
 }
 
 async function showPullRequest(root: HTMLElement, reference: PullRequestReference): Promise<void> {
-  renderLoading(root, reference);
+  const showProgress = renderLoading(root, reference);
+  const stopWatching = watchPullRequestProgress(reference, showProgress);
   const result = await fetchPullRequestData(reference);
+  stopWatching();
   if (result.kind === "loaded") {
     mountTreemapView(root, result.data, window.location.search);
   } else {

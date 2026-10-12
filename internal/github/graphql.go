@@ -129,7 +129,10 @@ type graphqlFile struct {
 
 // FetchPullRequest returns the pull request's metadata and up to 3000 changed
 // files. Private repositories yield ErrNotFound, exactly like missing ones.
-func (client *Client) FetchPullRequest(ctx context.Context, id pullrequest.ID) (pullrequest.PullRequest, error) {
+// progress, which may be nil, follows the files pages as they arrive.
+func (client *Client) FetchPullRequest(
+	ctx context.Context, id pullrequest.ID, progress *Progress,
+) (pullrequest.PullRequest, error) {
 	firstPage, err := client.fetchRepositoryPage(ctx, id, pullRequestFirstPageQuery, nil)
 	if err != nil {
 		return pullrequest.PullRequest{}, err
@@ -140,17 +143,19 @@ func (client *Client) FetchPullRequest(ctx context.Context, id pullrequest.ID) (
 		return pullrequest.PullRequest{}, err
 	}
 	firstFiles := firstPage.PullRequest.Files
+	progress.startFiles(min(pull.ChangedFiles, filesPagesMax*filesPageSize))
+	progress.addFiles(firstFiles)
 	pageCount := prefetchPageCount(firstFiles, pull.ChangedFiles)
 	// Every reason to skip prefetching a multi-page connection means GitHub
 	// paginates unlike measured, which turns big pull requests slow again.
 	if pageCount == 0 && firstFiles != nil && firstFiles.PageInfo.HasNextPage {
 		client.logger.Warn("github files pagination is not offset-based, fetching sequentially", "pull_request", id.String())
 	}
-	prefetched, err := client.prefetchFilesPages(ctx, id, pull.HeadSHA, pageCount)
+	prefetched, err := client.prefetchFilesPages(ctx, id, pull.HeadSHA, pageCount, progress)
 	if err != nil {
 		return pullrequest.PullRequest{}, err
 	}
-	files, err := client.collectFiles(ctx, id, pull.HeadSHA, firstFiles, prefetched)
+	files, err := client.collectFiles(ctx, id, pull.HeadSHA, firstFiles, prefetched, progress)
 	if err != nil {
 		return pullrequest.PullRequest{}, err
 	}
@@ -198,7 +203,7 @@ func filesCursor(offset int) string {
 // bounded by filesPagesInFlightMax. Index 0 stays empty: the first page
 // arrived with the metadata. The first failure cancels the rest.
 func (client *Client) prefetchFilesPages(
-	ctx context.Context, id pullrequest.ID, headSHA pullrequest.CommitSHA, pageCount int,
+	ctx context.Context, id pullrequest.ID, headSHA pullrequest.CommitSHA, pageCount int, progress *Progress,
 ) ([]prefetchedPage, error) {
 	assert(pageCount >= 0, "page count is not negative")
 	assert(pageCount <= filesPagesMax, "page count is bounded by the page limit")
@@ -234,6 +239,7 @@ func (client *Client) prefetchFilesPages(
 					return
 				}
 				pages[pageIndex] = prefetchedPage{cursor: cursor, files: files}
+				progress.addFiles(files)
 			}
 		})
 	}
@@ -249,7 +255,7 @@ func (client *Client) prefetchFilesPages(
 // fetching it otherwise, so a wrong prefetch costs requests, never files.
 func (client *Client) collectFiles(
 	ctx context.Context, id pullrequest.ID, headSHA pullrequest.CommitSHA,
-	firstPage *graphqlFiles, prefetched []prefetchedPage,
+	firstPage *graphqlFiles, prefetched []prefetchedPage, progress *Progress,
 ) ([]pullrequest.ChangedFile, error) {
 	files := make([]pullrequest.ChangedFile, 0, filesPageSize)
 	seenPaths := make(map[string]struct{}, filesPageSize)
@@ -291,6 +297,7 @@ func (client *Client) collectFiles(
 		if err != nil {
 			return nil, err
 		}
+		progress.addFiles(nextPage)
 		page = nextPage
 	}
 	return files, nil

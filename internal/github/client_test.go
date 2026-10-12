@@ -189,7 +189,7 @@ func TestFetchPullRequestPaginates(t *testing.T) {
 		writeRepository(writer, false, testPullRequest(generatedFiles(start, count), fileCount, hasNextPage, "cursor"+strconv.Itoa(index)))
 	}
 	client, _ := newTestClient(t, fake, 4)
-	pull, err := client.FetchPullRequest(context.Background(), testID(t))
+	pull, err := client.FetchPullRequest(context.Background(), testID(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestFetchPullRequestStopsAtPageLimit(t *testing.T) {
 		writeRepository(writer, false, testPullRequest(generatedFiles(index*filesPageSize, filesPageSize), 3500, true, "c"+strconv.Itoa(index)))
 	}
 	client, _ := newTestClient(t, fake, 4)
-	pull, err := client.FetchPullRequest(context.Background(), testID(t))
+	pull, err := client.FetchPullRequest(context.Background(), testID(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +264,7 @@ func TestFetchPullRequestNullFilesIsTruncated(t *testing.T) {
 		writeRepository(writer, false, pull)
 	}
 	client, _ := newTestClient(t, fake, 4)
-	pull, err := client.FetchPullRequest(context.Background(), testID(t))
+	pull, err := client.FetchPullRequest(context.Background(), testID(t), nil)
 	if err != nil || len(pull.Files) != 0 || !pull.FilesTruncated() {
 		t.Fatalf("pull = %+v, err = %v", pull, err)
 	}
@@ -286,7 +286,7 @@ func TestFetchPullRequestNotFound(t *testing.T) {
 				fmt.Fprint(writer, body)
 			}
 			client, _ := newTestClient(t, fake, 4)
-			_, err := client.FetchPullRequest(context.Background(), testID(t))
+			_, err := client.FetchPullRequest(context.Background(), testID(t), nil)
 			if !errors.Is(err, ErrNotFound) {
 				t.Fatalf("error = %v, want ErrNotFound", err)
 			}
@@ -310,7 +310,7 @@ func TestFetchPullRequestPrivateRepositoryIsNotFound(t *testing.T) {
 				writeRepository(writer, index == privatePageIndex, pull)
 			}
 			client, logs := newTestClient(t, fake, 4)
-			pull, err := client.FetchPullRequest(context.Background(), testID(t))
+			pull, err := client.FetchPullRequest(context.Background(), testID(t), nil)
 			if !errors.Is(err, ErrNotFound) {
 				t.Fatalf("error = %v, want ErrNotFound", err)
 			}
@@ -354,7 +354,7 @@ func TestFetchPullRequestRateLimited(t *testing.T) {
 				fmt.Fprint(writer, testCase.body)
 			}
 			client, _ := newTestClient(t, fake, 4)
-			_, err := client.FetchPullRequest(context.Background(), testID(t))
+			_, err := client.FetchPullRequest(context.Background(), testID(t), nil)
 			var rateLimit *RateLimitError
 			if !errors.As(err, &rateLimit) {
 				t.Fatalf("error = %v, want RateLimitError", err)
@@ -407,7 +407,7 @@ func TestFetchPullRequestRejectsMalformedResponses(t *testing.T) {
 				fmt.Fprint(writer, body)
 			}
 			client, _ := newTestClient(t, fake, 4)
-			_, err := client.FetchPullRequest(context.Background(), testID(t))
+			_, err := client.FetchPullRequest(context.Background(), testID(t), nil)
 			if !errors.Is(err, ErrUpstream) {
 				t.Fatalf("error = %v, want ErrUpstream", err)
 			}
@@ -421,7 +421,7 @@ func TestFetchPullRequestUpstreamStatusIsLoggedWithoutToken(t *testing.T) {
 		http.Error(writer, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
 	}
 	client, logs := newTestClient(t, fake, 4)
-	_, err := client.FetchPullRequest(context.Background(), testID(t))
+	_, err := client.FetchPullRequest(context.Background(), testID(t), nil)
 	if !errors.Is(err, ErrUpstream) {
 		t.Fatalf("error = %v, want ErrUpstream", err)
 	}
@@ -446,7 +446,7 @@ func TestFetchPullRequestHeadMovedDuringPagination(t *testing.T) {
 		writeRepository(writer, false, pull)
 	}
 	client, _ := newTestClient(t, fake, 4)
-	_, err := client.FetchPullRequest(context.Background(), testID(t))
+	_, err := client.FetchPullRequest(context.Background(), testID(t), nil)
 	if !errors.Is(err, ErrUpstream) {
 		t.Fatalf("error = %v, want ErrUpstream", err)
 	}
@@ -536,11 +536,18 @@ func TestFetchPullRequestPrefetchesOffsetPages(t *testing.T) {
 			pages := &offsetPages{fileCount: testCase.fileCount, changedFiles: int64(testCase.fileCount), pageSize: fullPages}
 			fake := newOffsetGitHub(t, pages)
 			client, logs := newTestClient(t, fake, 16)
-			pull, err := client.FetchPullRequest(context.Background(), testID(t))
+			progress := &Progress{}
+			pull, err := client.FetchPullRequest(context.Background(), testID(t), progress)
 			if err != nil {
 				t.Fatal(err)
 			}
 			checkFilesInOrder(t, pull.Files, testCase.wantFiles)
+			wantProgress := ProgressSnapshot{
+				Stage: StageFiles, FilesTotal: int64(testCase.wantFiles), FilesFetched: int64(testCase.wantFiles),
+			}
+			if got := progress.Snapshot(); got != wantProgress {
+				t.Fatalf("progress = %+v, want %+v", got, wantProgress)
+			}
 			if pull.FilesTruncated() != (testCase.wantFiles < testCase.fileCount) {
 				t.Fatalf("truncated = %v", pull.FilesTruncated())
 			}
@@ -597,7 +604,7 @@ func TestFetchPullRequestPrefetchFallsBackToRealCursors(t *testing.T) {
 			pages := testCase.pages
 			fake := newOffsetGitHub(t, pages)
 			client, _ := newTestClient(t, fake, 16)
-			pull, err := client.FetchPullRequest(context.Background(), testID(t))
+			pull, err := client.FetchPullRequest(context.Background(), testID(t), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -615,7 +622,7 @@ func TestFetchPullRequestPrefetchSkipsUnknownCursors(t *testing.T) {
 		writeRepository(writer, false, testPullRequest(generatedFiles(index*filesPageSize, filesPageSize), 500, index < 4, "opaque"+strconv.Itoa(index)))
 	}
 	client, logs := newTestClient(t, fake, 16)
-	pull, err := client.FetchPullRequest(context.Background(), testID(t))
+	pull, err := client.FetchPullRequest(context.Background(), testID(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -659,7 +666,7 @@ func TestFetchPullRequestRejectsPrefetchedPage(t *testing.T) {
 				}}
 			fake := newOffsetGitHub(t, pages)
 			client, logs := newTestClient(t, fake, 16)
-			pull, err := client.FetchPullRequest(context.Background(), testID(t))
+			pull, err := client.FetchPullRequest(context.Background(), testID(t), nil)
 			if !errors.Is(err, testCase.wantErr) {
 				t.Fatalf("error = %v, want %v", err, testCase.wantErr)
 			}

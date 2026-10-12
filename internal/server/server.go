@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"wtreef/internal/cache"
+	"wtreef/internal/github"
 	"wtreef/internal/pullrequest"
 )
 
@@ -21,6 +22,7 @@ const (
 		"connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 	apiPrefix            = "/api/"
 	apiPullRequestPrefix = "/api/pr/"
+	apiProgressPrefix    = "/api/progress/"
 	assetsPrefix         = "/assets/"
 	healthPath           = "/healthz"
 
@@ -32,10 +34,13 @@ const (
 	headerBytesMax = 16 << 10
 )
 
-// GitHub is the subset of the GitHub client the server needs.
+// GitHub is the subset of the GitHub client the server needs. progress may
+// be nil.
 type GitHub interface {
-	FetchPullRequest(ctx context.Context, id pullrequest.ID) (pullrequest.PullRequest, error)
-	FetchTree(ctx context.Context, repository pullrequest.Repository, sha pullrequest.CommitSHA) (pullrequest.Tree, error)
+	FetchPullRequest(ctx context.Context, id pullrequest.ID, progress *github.Progress) (pullrequest.PullRequest, error)
+	FetchTree(
+		ctx context.Context, repository pullrequest.Repository, sha pullrequest.CommitSHA, progress *github.Progress,
+	) (pullrequest.Tree, error)
 }
 
 type Config struct {
@@ -65,6 +70,7 @@ type Server struct {
 	responses      *cache.ResponseCache
 	responseFlight *cache.Group[cache.ResponseEntry]
 	treeFlight     *cache.Group[pullrequest.Tree]
+	builds         *buildRegistry
 	assets         *assetServer
 	limiter        *clientLimiter
 	clientIPHeader string
@@ -86,6 +92,7 @@ func New(config Config) (*Server, error) {
 		responses:      config.Responses,
 		responseFlight: cache.NewGroup[cache.ResponseEntry](),
 		treeFlight:     cache.NewGroup[pullrequest.Tree](),
+		builds:         newBuildRegistry(),
 		assets:         assets,
 		limiter:        newClientLimiter(config.Limits),
 		clientIPHeader: config.ClientIPHeader,

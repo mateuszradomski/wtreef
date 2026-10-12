@@ -32,6 +32,12 @@ type apiError struct {
 }
 
 func (server *Server) serveAPI(writer http.ResponseWriter, request *http.Request, path string) {
+	// Progress is a map lookup polled several times a second while a pull
+	// request loads, so it does not spend the client's rate limit.
+	if rest, isProgressRoute := strings.CutPrefix(path, apiProgressPrefix); isProgressRoute {
+		server.serveProgress(writer, rest)
+		return
+	}
 	allowed, retryAfterSeconds := server.limiter.allow(server.clientKey(request), time.Now())
 	if !allowed {
 		writer.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds))
@@ -79,9 +85,12 @@ func (server *Server) loadResponse(ctx context.Context, id pullrequest.ID) (cach
 		if entry, hit := server.responses.Get(key, time.Now()); hit {
 			return entry, nil
 		}
+		progress := &github.Progress{}
+		server.builds.add(key, progress)
+		defer server.builds.remove(key, progress)
 		workContext, cancel := context.WithTimeout(context.Background(), buildTimeout)
 		defer cancel()
-		entry, err := server.buildResponse(workContext, id)
+		entry, err := server.buildResponse(workContext, id, progress)
 		if err != nil {
 			return cache.ResponseEntry{}, err
 		}
@@ -90,13 +99,15 @@ func (server *Server) loadResponse(ctx context.Context, id pullrequest.ID) (cach
 	})
 }
 
-func (server *Server) buildResponse(ctx context.Context, id pullrequest.ID) (cache.ResponseEntry, error) {
+func (server *Server) buildResponse(
+	ctx context.Context, id pullrequest.ID, progress *github.Progress,
+) (cache.ResponseEntry, error) {
 	started := time.Now()
-	pull, err := server.github.FetchPullRequest(ctx, id)
+	pull, err := server.github.FetchPullRequest(ctx, id, progress)
 	if err != nil {
 		return cache.ResponseEntry{}, err
 	}
-	tree, err := server.loadTree(ctx, pull.Repository, pull.HeadSHA)
+	tree, err := server.loadTree(ctx, pull.Repository, pull.HeadSHA, progress)
 	if err != nil {
 		return cache.ResponseEntry{}, err
 	}
@@ -111,16 +122,19 @@ func (server *Server) buildResponse(ctx context.Context, id pullrequest.ID) (cac
 
 // loadTree serves from the disk store or coalesces fetches of the same
 // commit. A failed store write only costs a refetch later, so it is logged.
+// Tree entries are counted into the progress of the load that started the
+// fetch; a load that joins it only learns that the tree is underway.
 func (server *Server) loadTree(
-	ctx context.Context, repository pullrequest.Repository, sha pullrequest.CommitSHA,
+	ctx context.Context, repository pullrequest.Repository, sha pullrequest.CommitSHA, progress *github.Progress,
 ) (pullrequest.Tree, error) {
 	if tree, hit := server.trees.Get(sha); hit {
 		return tree, nil
 	}
+	progress.StartTree()
 	return server.treeFlight.Do(ctx, sha.String(), func() (pullrequest.Tree, error) {
 		workContext, cancel := context.WithTimeout(context.Background(), buildTimeout)
 		defer cancel()
-		tree, err := server.github.FetchTree(workContext, repository, sha)
+		tree, err := server.github.FetchTree(workContext, repository, sha, progress)
 		if err != nil {
 			return pullrequest.Tree{}, err
 		}

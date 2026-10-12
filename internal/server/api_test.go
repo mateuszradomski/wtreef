@@ -136,6 +136,60 @@ func TestAPICoalescesConcurrentRequests(t *testing.T) {
 	}
 }
 
+// Progress is polled while a build runs, so it reports each stage of that
+// build, answers "idle" otherwise, and never spends the rate limit.
+func TestAPIProgressFollowsTheBuild(t *testing.T) {
+	fake := newFakeGitHub(t)
+	fake.release = make(chan struct{})
+	fake.treeRelease = make(chan struct{})
+	server := newTestServer(t, testServerOptions{
+		github: fake, limits: RateLimits{RequestsPerMinute: 1, Burst: 1, ClientsMax: 10},
+	})
+	readStage := func() string {
+		t.Helper()
+		// Cache keys ignore case, so the progress path may differ from the load's.
+		response := serve(server, "GET", "/api/progress/L2BEAT/L2Beat/13157", nil)
+		var body progressResponse
+		check(t, json.Unmarshal(response.Body.Bytes(), &body))
+		if response.Code != 200 || response.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("progress = %d %v", response.Code, response.Header())
+		}
+		return body.Stage
+	}
+	waitFor := func(calls *atomic.Int32) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); calls.Load() == 0; time.Sleep(time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatal("the build never reached GitHub")
+			}
+		}
+	}
+
+	if stage := readStage(); stage != progressStageIdle {
+		t.Fatalf("stage before the load = %q", stage)
+	}
+	loaded := make(chan int)
+	go func() { loaded <- serve(server, "GET", "/api/pr/l2beat/l2beat/13157", nil).Code }()
+	waitFor(&fake.pullRequestCalls)
+	for range 3 {
+		if stage := readStage(); stage != progressStagePullRequest {
+			t.Fatalf("stage while fetching the pull request = %q", stage)
+		}
+	}
+	close(fake.release)
+	waitFor(&fake.treeCalls)
+	if stage := readStage(); stage != progressStageTree {
+		t.Fatalf("stage while fetching the tree = %q", stage)
+	}
+	close(fake.treeRelease)
+	if code := <-loaded; code != 200 {
+		t.Fatalf("load = %d", code)
+	}
+	if stage := readStage(); stage != progressStageIdle {
+		t.Fatalf("stage after the load = %q", stage)
+	}
+}
+
 // The deploy token may read private repositories. This runs the real GitHub
 // client against a fake API and checks that a private repository's
 // response is byte-for-byte the missing repository's response, that its

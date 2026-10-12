@@ -4,9 +4,10 @@
 
 import { unreachable } from "./assert.ts";
 import type { FetchResult } from "./api.ts";
-import type { ApiError } from "./decode.ts";
+import type { ApiError, LoadProgress } from "./decode.ts";
 import { append, button, element, link } from "./dom.ts";
 import { formatWait } from "./format.ts";
+import { progressFraction, progressText } from "./load-progress.ts";
 import type { PullRequestReference } from "./route.ts";
 
 /** A retry countdown never runs longer than this, whatever Retry-After says. */
@@ -27,28 +28,45 @@ function statePage(title: string, ...body: HTMLElement[]): HTMLElement {
   return append(page, brand, heading, ...body);
 }
 
-export function renderLoading(root: HTMLElement, reference: PullRequestReference): void {
+function loadingBar(...measured: HTMLElement[]): HTMLElement {
+  const bar = element("div", "loading-bar");
+  bar.setAttribute("role", "progressbar");
+  bar.setAttribute("aria-label", "Loading");
+  return append(bar, element("span", "loading-bar-fill"), ...measured);
+}
+
+/**
+ * The bar slides until the server reports something measurable, then fills.
+ * Returns the function that shows each report as it arrives.
+ */
+export function renderLoading(root: HTMLElement, reference: PullRequestReference): (progress: LoadProgress) => void {
   document.title = `${referenceLabel(reference)} · wtreef`;
-  const progress = element("div", "loading-bar");
-  progress.setAttribute("role", "progressbar");
-  progress.setAttribute("aria-label", "Loading");
-  progress.append(element("span", "loading-bar-fill"));
+  const barProgress = element("span", "loading-bar-progress");
+  const bar = loadingBar(barProgress);
+  const status = element("p", "loading-status", "Asking GitHub for the pull request…");
   const page = statePage(
     `Fetching ${referenceLabel(reference)} from GitHub…`,
-    progress,
+    bar,
+    status,
     element("p", "state-detail", "The first visit to a large repository can take a few seconds."),
   );
   page.setAttribute("aria-busy", "true");
   root.replaceChildren(page);
+  return (progress) => {
+    const text = progressText(progress);
+    if (text !== null) status.textContent = text;
+    const fraction = progressFraction(progress);
+    if (fraction === null) return;
+    bar.classList.add("is-measured");
+    bar.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
+    bar.setAttribute("aria-valuetext", status.textContent ?? "");
+    barProgress.style.transform = `scaleX(${fraction})`;
+  };
 }
 
 export function renderBranchLoading(root: HTMLElement): void {
   document.title = "wtreef";
-  const progress = element("div", "loading-bar");
-  progress.setAttribute("role", "progressbar");
-  progress.setAttribute("aria-label", "Loading");
-  progress.append(element("span", "loading-bar-fill"));
-  const page = statePage("Reading your branch…", progress);
+  const page = statePage("Reading your branch…", loadingBar());
   page.setAttribute("aria-busy", "true");
   root.replaceChildren(page);
 }

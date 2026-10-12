@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodeApiError, decodeBranchData, decodePullRequestData, FileStatus, NodeKind, parseRetryAfter } from "./decode.ts";
+import { decodeApiError, decodeBranchData, decodeLoadProgress, decodePullRequestData, FileStatus, NodeKind, parseRetryAfter } from "./decode.ts";
 import { loadFixtureJson, REAL_FIXTURE, TINY_FIXTURE } from "./test-support.ts";
 
 type TreeJson = Record<string, unknown[]>;
@@ -165,4 +165,14 @@ test("parses Retry-After as seconds or an HTTP date", () => {
   assert.equal(parseRetryAfter("Mon, 12 Oct 2026 12:00:00 GMT", nowMs), 0);
   assert.equal(parseRetryAfter("soon", nowMs), null);
   assert.equal(parseRetryAfter(null, nowMs), null);
+});
+
+test("decodes progress and rejects counts that break the contract", () => {
+  const valid = { stage: "files", filesFetched: 1200, filesTotal: 2800, treeEntries: 0 };
+  assert.deepEqual(decodeLoadProgress(valid), valid);
+  assert.equal(decodeLoadProgress({ stage: "idle", filesFetched: 0, filesTotal: 0, treeEntries: 0 }).stage, "idle");
+  assert.throws(() => decodeLoadProgress({ ...valid, stage: "done" }), /stage must be a known stage/);
+  assert.throws(() => decodeLoadProgress({ ...valid, filesFetched: 2801 }), /filesFetched must be at most 2800/);
+  assert.throws(() => decodeLoadProgress({ ...valid, filesTotal: 3001 }), /filesTotal must be at most 3000/);
+  assert.throws(() => decodeLoadProgress({ ...valid, treeEntries: -1 }), /treeEntries must be at least 0/);
 });
