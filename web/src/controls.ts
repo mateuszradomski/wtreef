@@ -61,10 +61,16 @@ export function createControls(callbacks: ControlsCallbacks): Controls {
   const include = createPatternField({
     name: "include",
     label: "Include",
-    placeholder: "src/.*\\.tsx?$",
+    // "e.g." keeps the example from reading as an active filter.
+    placeholder: "e.g. src/.*\\.tsx?$",
     onCommit: callbacks.onInclude,
   });
-  const exclude = createPatternField({ name: "exclude", label: "Exclude", placeholder: "test|\\.snap$", onCommit: callbacks.onExclude });
+  const exclude = createPatternField({
+    name: "exclude",
+    label: "Exclude",
+    placeholder: "e.g. test|\\.snap$",
+    onCommit: callbacks.onExclude,
+  });
   const patterns = append(element("div", "pattern-fields"), include.root, exclude.root);
   const end = append(element("div", "controls-end"), sizeGroup, patterns);
   append(root, crumbs, end);
