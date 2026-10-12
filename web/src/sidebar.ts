@@ -1,14 +1,18 @@
-// The file list: changed files that pass the filters, inside the zoomed
-// folder, heaviest churn first. It is also the accessible twin of the
-// canvas: every tile's numbers are reachable here as links to the diff.
+// The sidebar, top to bottom: the Filter section, the changed-file list,
+// and the legend. The list holds the changed files that pass the filters
+// inside the zoomed folder, heaviest churn first. It is also the accessible
+// twin of the canvas: every tile's numbers are reachable here as links to
+// the diff.
 
 import { assert } from "./assert.ts";
 import { churnIntensity } from "./color.ts";
 import type { Tree } from "./decode.ts";
 import { append, element, link } from "./dom.ts";
+import type { FilterSection } from "./filter-section.ts";
 import { formatAdditions, formatCount, formatDeletions } from "./format.ts";
 import type { TreeIndex } from "./model.ts";
 import { statusClassName, statusLabel, statusLetter, statusOf } from "./status.ts";
+import { createLegend } from "./ui.ts";
 
 /** Rendering is bounded; past this, filters are the better tool than scrolling. */
 const LIST_ROWS_MAX = 400;
@@ -21,6 +25,7 @@ export interface SidebarCallbacks {
 
 export interface Sidebar {
   readonly root: HTMLElement;
+  readonly filter: FilterSection;
   readonly heading: HTMLElement;
   readonly count: HTMLElement;
   readonly list: HTMLElement;
@@ -39,17 +44,19 @@ export interface FileListInput {
   readonly zoomPath: string;
 }
 
-export function createSidebar(callbacks: SidebarCallbacks): Sidebar {
+export function createSidebar(filter: FilterSection, callbacks: SidebarCallbacks): Sidebar {
   const root = element("aside", "sidebar");
-  root.setAttribute("aria-label", "Changed files");
-  const header = element("div", "sidebar-header");
-  const heading = element("h2", "sidebar-heading", "Changed files");
-  const count = element("span", "sidebar-count mono");
+  root.setAttribute("aria-label", "Filters and changed files");
+  const files = element("section", "files-section");
+  const header = element("div", "files-header");
+  const heading = element("h2", "section-heading files-heading", "Changed files");
+  const count = element("span", "files-count mono");
   append(header, heading, count);
   const list = element("ol", "file-list");
   const footer = element("p", "file-list-footer");
   footer.hidden = true;
-  append(root, header, list, footer);
+  append(files, header, list, footer);
+  append(root, filter.root, files, createLegend());
 
   // Delegated listeners: one set for the whole list instead of one per row.
   const rowNode = (target: EventTarget | null): number => {
@@ -67,7 +74,7 @@ export function createSidebar(callbacks: SidebarCallbacks): Sidebar {
     if (node !== NO_NODE) callbacks.onHoverRow(node);
   });
   list.addEventListener("focusout", callbacks.onLeaveRows);
-  return { root, heading, count, list, footer, rowByNode: new Map(), highlightedNode: NO_NODE };
+  return { root, filter, heading, count, list, footer, rowByNode: new Map(), highlightedNode: NO_NODE };
 }
 
 export function renderFileList(sidebar: Sidebar, input: FileListInput): void {

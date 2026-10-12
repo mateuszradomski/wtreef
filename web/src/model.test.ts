@@ -14,11 +14,12 @@ import {
   ESTIMATED_BYTES_PER_CHANGED_LINE,
   type Filters,
   findDirectoryByPath,
-  hasActiveFilters,
+  hasActiveCategoryFilters,
   isGeneratedPath,
   SizeMode,
   TYPE_KEY_NONE,
   typeKeyOf,
+  withDefaultCategoryFilters,
 } from "./model.ts";
 import { parsePathPattern } from "./pattern.ts";
 import { loadFixtureJson, REAL_FIXTURE, TINY_FIXTURE } from "./test-support.ts";
@@ -233,9 +234,21 @@ test("derives type keys from file names", () => {
   assert.equal(typeKeyOf("trailing."), TYPE_KEY_NONE);
 });
 
-test("reports active filters, ignoring size mode", () => {
-  assert.equal(hasActiveFilters(DEFAULT_FILTERS), false);
-  assert.equal(hasActiveFilters({ ...DEFAULT_FILTERS, sizeMode: SizeMode.churn }), false);
-  assert.equal(hasActiveFilters({ ...DEFAULT_FILTERS, include: parsePathPattern("x") }), true);
-  assert.equal(hasActiveFilters({ ...DEFAULT_FILTERS, hiddenTypes: new Set(["md"]) }), true);
+test("category filters ignore size mode and path patterns, and reset to the defaults", () => {
+  assert.equal(hasActiveCategoryFilters(DEFAULT_FILTERS), false);
+  assert.equal(hasActiveCategoryFilters({ ...DEFAULT_FILTERS, sizeMode: SizeMode.context }), false);
+  assert.equal(hasActiveCategoryFilters({ ...DEFAULT_FILTERS, include: parsePathPattern("x") }), false);
+  assert.equal(hasActiveCategoryFilters({ ...DEFAULT_FILTERS, hiddenTypes: new Set(["md"]) }), true);
+  assert.equal(hasActiveCategoryFilters({ ...DEFAULT_FILTERS, showUnchanged: false }), true);
+  const changed: Filters = {
+    ...DEFAULT_FILTERS,
+    sizeMode: SizeMode.context,
+    hiddenStatuses: 1 << FileStatus.added,
+    showGenerated: false,
+    exclude: parsePathPattern("test"),
+  };
+  const reset = withDefaultCategoryFilters(changed);
+  assert.equal(hasActiveCategoryFilters(reset), false);
+  assert.equal(reset.sizeMode, SizeMode.context);
+  assert.equal(reset.exclude, changed.exclude);
 });

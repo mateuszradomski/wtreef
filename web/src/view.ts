@@ -6,27 +6,31 @@
 import { assert } from "./assert.ts";
 import { NodeKind, type PullRequestData, type Tree } from "./decode.ts";
 import { computeDiffUrls, filesTabUrl } from "./diff.ts";
+import { createControls, type Controls, type ControlsCallbacks, syncControls } from "./controls.ts";
 import { append, element } from "./dom.ts";
+import { createFilterSection, type FilterSectionCallbacks, syncFilterSection } from "./filter-section.ts";
 import { hitTest, isDirectoryFrameHit, NO_NODE } from "./hit.ts";
 import { chainEnd, chainTop, computeLayout, createLayout, type Layout, LayoutFlag } from "./layout.ts";
 import {
   buildTreeIndex,
   computeSubtreeMembership,
   computeWeights,
-  DEFAULT_FILTERS,
   type Filters,
   filtersEqual,
   findDirectoryByPath,
   isChangedFile,
   type TreeIndex,
+  withDefaultCategoryFilters,
 } from "./model.ts";
 import { parsePathPattern } from "./pattern.ts";
 import { parseViewQuery, serializeViewQuery } from "./query.ts";
 import { type ChartPalette, computeTileStyles, drawBase, drawHighlight, readChartPalette, type TileStyles } from "./render.ts";
 import { createSidebar, highlightRow, renderFileList, type Sidebar } from "./sidebar.ts";
-import { createToolbar, syncToolbar, type Toolbar, type ToolbarCallbacks } from "./toolbar.ts";
 import { createTooltip, describeNode, fillTooltip, hideTooltip, moveTooltip, type Tooltip } from "./tooltip.ts";
-import { createBreadcrumbs, createHeader, createLegend, createTruncationBanner, renderBreadcrumbs } from "./ui.ts";
+import { createHeader, createTruncationBanner } from "./ui.ts";
+
+/** Mirrors the narrow-screen breakpoint in style.css, where the sidebar stacks under the map. */
+const NARROW_LAYOUT_QUERY = "(max-width: 860px)";
 
 const HoverSource = { none: 0, canvas: 1, list: 2 } as const;
 type HoverSource = (typeof HoverSource)[keyof typeof HoverSource];
@@ -80,8 +84,7 @@ interface MapElements {
 export interface View {
   readonly state: ViewState;
   readonly map: MapElements;
-  readonly toolbar: Toolbar;
-  readonly crumbList: HTMLElement;
+  readonly controls: Controls;
   readonly sidebar: Sidebar;
   readonly tooltip: Tooltip;
 }
@@ -89,26 +92,26 @@ export interface View {
 export function mountPullRequestView(root: HTMLElement, data: PullRequestData, search: string): View {
   const state = createState(data, search);
   const map = createMapElements();
-  // Toolbar and sidebar callbacks need the view, which holds them; they
+  // Control and sidebar callbacks need the view, which holds them; they
   // only run after mount, by which time `view` is assigned.
   let view: View | null = null;
   const getView = (): View => {
     assert(view !== null, "events fire only after mount");
     return view;
   };
-  const toolbar = createToolbar(state.index, toolbarCallbacks(getView));
-  const sidebar = createSidebar({
+  const controls = createControls(controlsCallbacks(getView));
+  const filterSection = createFilterSection(state.index, filterCallbacks(getView), !window.matchMedia(NARROW_LAYOUT_QUERY).matches);
+  const sidebar = createSidebar(filterSection, {
     onHoverRow: (node) => hoverFromList(getView(), node),
     onLeaveRows: () => leaveList(getView()),
   });
-  const { nav, list } = createBreadcrumbs();
-  view = { state, map, toolbar, crumbList: list, sidebar, tooltip: createTooltip() };
+  view = { state, map, controls, sidebar, tooltip: createTooltip() };
 
   const shell = element("div", "pr-view");
   shell.append(createHeader(data));
   const banner = createTruncationBanner(data, state.index.changedFiles.length);
   if (banner !== null) shell.append(banner);
-  shell.append(toolbar.root, append(element("div", "crumb-row"), nav, createLegend()));
+  shell.append(controls.root);
   shell.append(append(element("div", "pr-main"), map.container, sidebar.root), view.tooltip.root);
   root.replaceChildren(shell);
   document.title = `${data.pullRequest.owner}/${data.pullRequest.repo}#${data.pullRequest.number} · wtreef`;
@@ -131,20 +134,29 @@ export function mountPullRequestView(root: HTMLElement, data: PullRequestData, s
   return view;
 }
 
-function toolbarCallbacks(getView: () => View): ToolbarCallbacks {
-  const update = (change: (filters: Filters) => Filters) => {
-    const view = getView();
-    applyFilters(view, change(view.state.filters));
-  };
+function updateFilters(getView: () => View, change: (filters: Filters) => Filters): void {
+  const view = getView();
+  applyFilters(view, change(view.state.filters));
+}
+
+function controlsCallbacks(getView: () => View): ControlsCallbacks {
+  const update = (change: (filters: Filters) => Filters) => updateFilters(getView, change);
   return {
     onSizeMode: (mode) => update((filters) => ({ ...filters, sizeMode: mode })),
+    onInclude: (text) => update((filters) => ({ ...filters, include: parsePathPattern(text) })),
+    onExclude: (text) => update((filters) => ({ ...filters, exclude: parsePathPattern(text) })),
+    onZoom: (node) => zoomTo(getView(), node),
+  };
+}
+
+function filterCallbacks(getView: () => View): FilterSectionCallbacks {
+  const update = (change: (filters: Filters) => Filters) => updateFilters(getView, change);
+  return {
     onToggleStatus: (status) => update((filters) => ({ ...filters, hiddenStatuses: filters.hiddenStatuses ^ (1 << status) })),
     onToggleType: (key) => update((filters) => ({ ...filters, hiddenTypes: toggledSet(filters.hiddenTypes, key) })),
     onToggleUnchanged: () => update((filters) => ({ ...filters, showUnchanged: !filters.showUnchanged })),
     onToggleGenerated: () => update((filters) => ({ ...filters, showGenerated: !filters.showGenerated })),
-    onInclude: (text) => update((filters) => ({ ...filters, include: parsePathPattern(text) })),
-    onExclude: (text) => update((filters) => ({ ...filters, exclude: parsePathPattern(text) })),
-    onReset: () => update((filters) => ({ ...DEFAULT_FILTERS, sizeMode: filters.sizeMode })),
+    onReset: () => update(withDefaultCategoryFilters),
   };
 }
 
@@ -263,8 +275,13 @@ function runFrame(view: View): void {
 function runDomUpdates(view: View): void {
   const { state } = view;
   if (state.controlsDirty) {
-    syncToolbar(view.toolbar, state.filters);
-    renderBreadcrumbs(view.crumbList, state.tree, state.zoomNode, state.data.pullRequest.repo, (node) => zoomTo(view, node));
+    syncControls(view.controls, {
+      filters: state.filters,
+      tree: state.tree,
+      zoomNode: state.zoomNode,
+      repositoryName: state.data.pullRequest.repo,
+    });
+    syncFilterSection(view.sidebar.filter, state.filters);
     state.controlsDirty = false;
   }
   if (state.listDirty) {
@@ -465,8 +482,8 @@ function attachWindowEvents(view: View): void {
       zoomOut(view);
     } else if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
-      view.toolbar.include.input.focus();
-      view.toolbar.include.input.select();
+      view.controls.include.input.focus();
+      view.controls.include.input.select();
     }
   });
   const colorScheme = window.matchMedia("(prefers-color-scheme: light)");

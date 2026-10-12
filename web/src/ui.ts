@@ -1,8 +1,8 @@
-// Static chrome around the map: header, truncation banner, breadcrumbs and
-// legend. Untrusted text (titles, names) only ever goes through textContent.
+// Static chrome around the map: header, truncation banner and legend.
+// Untrusted text (titles, names) only ever goes through textContent.
 
-import type { PullRequestData, Tree } from "./decode.ts";
-import { append, button, element, link } from "./dom.ts";
+import type { PullRequestData } from "./decode.ts";
+import { append, element, link } from "./dom.ts";
 import { formatAdditions, formatCount, formatDeletions, plural } from "./format.ts";
 
 export function createHeader(data: PullRequestData): HTMLElement {
@@ -47,52 +47,6 @@ export function createTruncationBanner(data: PullRequestData, shownChangedFiles:
   const banner = element("div", "banner", notes.join(" "));
   banner.setAttribute("role", "note");
   return banner;
-}
-
-/** Rebuilds the crumbs for the zoomed directory: `repo / packages / frontend`. */
-export function renderBreadcrumbs(
-  list: HTMLElement,
-  tree: Tree,
-  zoomNode: number,
-  repositoryName: string,
-  onZoom: (node: number) => void,
-): void {
-  const chain: number[] = [];
-  for (let node = zoomNode; node > 0 && chain.length < tree.nodeCount; node = tree.parents[node] ?? 0) {
-    chain.push(node);
-  }
-  chain.push(0);
-  chain.reverse();
-  const items: HTMLElement[] = [];
-  for (let position = 0; position < chain.length; position++) {
-    const node = chain[position] ?? 0;
-    const name = node === 0 ? repositoryName : (tree.names[node] ?? "");
-    if (position > 0) {
-      const separator = element("li", "crumb-separator", "/");
-      separator.setAttribute("aria-hidden", "true");
-      items.push(separator);
-    }
-    const isCurrent = position === chain.length - 1;
-    if (isCurrent) {
-      const current = element("span", "crumb is-current", name);
-      current.setAttribute("aria-current", "location");
-      items.push(append(element("li", ""), current));
-    } else {
-      const crumb = button("crumb", name);
-      crumb.title = node === 0 ? "Back to the repository root" : `Zoom out to ${name}`;
-      crumb.addEventListener("click", () => onZoom(node));
-      items.push(append(element("li", ""), crumb));
-    }
-  }
-  list.replaceChildren(...items);
-}
-
-export function createBreadcrumbs(): { nav: HTMLElement; list: HTMLElement } {
-  const nav = element("nav", "crumbs");
-  nav.setAttribute("aria-label", "Folder");
-  const list = element("ol", "crumb-list");
-  nav.append(list, element("span", "crumb-hint", "Click a folder to zoom · Esc to go up"));
-  return { nav, list };
 }
 
 /** The diverging ramp is a CSS gradient in OKLab, the same space and endpoints the canvas mixes in. */

@@ -365,7 +365,21 @@ export function filtersEqual(a: Filters, b: Filters): boolean {
   return true;
 }
 
-/** True when anything Reset would undo differs from the defaults. Size mode is a view choice, not a filter. */
-export function hasActiveFilters(filters: Filters): boolean {
-  return !filtersEqual({ ...filters, sizeMode: DEFAULT_FILTERS.sizeMode }, DEFAULT_FILTERS);
+/**
+ * The category filters (status, type, unchanged, generated) back to their
+ * defaults. They are the checkboxes of the Filter section, and its Reset
+ * undoes exactly them: size mode and path patterns have their own controls.
+ */
+export function withDefaultCategoryFilters(filters: Filters): Filters {
+  return {
+    ...filters,
+    hiddenStatuses: DEFAULT_FILTERS.hiddenStatuses,
+    hiddenTypes: DEFAULT_FILTERS.hiddenTypes,
+    showUnchanged: DEFAULT_FILTERS.showUnchanged,
+    showGenerated: DEFAULT_FILTERS.showGenerated,
+  };
+}
+
+export function hasActiveCategoryFilters(filters: Filters): boolean {
+  return !filtersEqual(filters, withDefaultCategoryFilters(filters));
 }

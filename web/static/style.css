@@ -310,41 +310,43 @@ input {
   font-size: var(--text-control);
 }
 
-/* Toolbar: one row on desktop, wraps on narrow screens. Text-only controls. */
-.toolbar {
+/* Controls bar: where you are on the left, how the map is drawn on the right. */
+.controls-bar {
   flex: none;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 8px 28px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--line);
+  justify-content: space-between;
+  gap: 8px 24px;
+  min-height: 48px;
+  padding: 8px 16px;
   font-size: var(--text-control);
 }
 
-.toolbar-group {
+.controls-end {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.toolbar-label {
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.control-label {
   color: var(--fg-3);
   font-size: var(--text-meta);
 }
 
-.segmented,
-.chips {
+.segmented {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 4px 14px;
+  gap: 14px;
 }
 
 .segment,
-.chip,
-.text-button,
-.crumb {
+.text-button {
   padding: 2px 0;
   border: 0;
   background: none;
@@ -357,77 +359,13 @@ input {
 }
 
 .segment:hover,
-.chip:hover,
-.text-button:hover,
-.crumb:hover {
+.text-button:hover {
   color: var(--fg);
 }
 
 .segment.is-active {
   color: var(--fg);
   border-bottom-color: var(--accent);
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.chip[aria-pressed="false"] {
-  color: var(--fg-3);
-}
-
-.chip:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.chip-box {
-  flex: none;
-  width: 9px;
-  height: 9px;
-  border: 1px solid var(--fg-3);
-  border-radius: 2px;
-}
-
-.chip[aria-pressed="true"] .chip-box {
-  border-color: var(--fg-2);
-  background: var(--fg-2);
-}
-
-.chip[aria-pressed="true"] .chip-box.status-added {
-  border-color: var(--status-added);
-  background: var(--status-added);
-}
-
-.chip[aria-pressed="true"] .chip-box.status-modified {
-  border-color: var(--status-modified);
-  background: var(--status-modified);
-}
-
-.chip[aria-pressed="true"] .chip-box.status-deleted {
-  border-color: var(--status-deleted);
-  background: var(--status-deleted);
-}
-
-.chip[aria-pressed="true"] .chip-box.status-renamed {
-  border-color: var(--status-renamed);
-  background: var(--status-renamed);
-}
-
-.chip-count {
-  color: var(--fg-3);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: var(--text-meta);
-}
-
-.toolbar-end {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-left: auto;
 }
 
 /*
@@ -522,29 +460,18 @@ input {
   text-decoration-color: var(--accent);
 }
 
-/* Breadcrumbs and legend share one quiet row above the map. */
-.crumb-row {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 24px;
-  min-height: 38px;
-  padding: 6px 16px;
-  font-size: var(--text-control);
-}
-
+/* Breadcrumbs: ancestors are buttons that zoom out; the current folder is plain text. */
 .crumbs {
   display: flex;
-  align-items: baseline;
-  gap: 14px;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
 }
 
 .crumb-list {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  gap: 2px;
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -554,8 +481,20 @@ input {
 }
 
 .crumb {
+  display: block;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: none;
+  color: var(--fg-2);
   font-family: var(--font-mono);
   font-size: var(--text-control);
+  cursor: pointer;
+}
+
+.crumb:hover {
+  background: var(--surface-2);
+  color: var(--fg);
 }
 
 .crumb.is-current {
@@ -567,17 +506,26 @@ input {
   color: var(--fg-3);
 }
 
-.crumb-hint {
+.crumb-escape {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-small);
   color: var(--fg-3);
-  font-size: var(--text-meta);
-  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
 }
 
+/* Legend: the sidebar's footer, small and last. */
 .legend {
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 14px;
+  gap: 4px 12px;
+  padding: 8px 16px 10px;
+  border-top: 1px solid var(--line);
   color: var(--fg-3);
   font-size: var(--text-meta);
   white-space: nowrap;
@@ -626,7 +574,7 @@ input {
   background: repeating-linear-gradient(135deg, var(--tile-rest-hatch) 0 1px, var(--tile-rest) 1px 4px);
 }
 
-/* Sidebar: the file list, also the accessible twin of the canvas. */
+/* Sidebar: the Filter section, the file list (the accessible twin of the canvas), and the legend. */
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -636,26 +584,207 @@ input {
   border-left: 1px solid var(--line);
 }
 
-.sidebar-header {
+.section-heading {
+  margin: 0;
+  color: var(--fg-2);
+  font-size: var(--text-control);
+  font-weight: 500;
+}
+
+.filter-section {
+  position: relative;
+  flex: none;
+  padding: 0 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.filter-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 8px;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.filter-summary::-webkit-details-marker {
+  display: none;
+}
+
+/* A chevron: right when closed, down when open. */
+.filter-summary::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+.filter-details[open] > .filter-summary::before {
+  transform: translateY(-2px) rotate(45deg);
+}
+
+.filter-summary:hover {
+  color: var(--fg);
+}
+
+.filter-reset {
+  position: absolute;
+  top: 4px;
+  right: 16px;
+  font-size: var(--text-meta);
+}
+
+.filter-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-group-label {
+  padding: 0 8px 2px;
+  color: var(--fg-3);
+  font-size: var(--text-meta);
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 4px;
+}
+
+.filter-column {
+  display: grid;
+}
+
+/* A checkbox row: box, label, and a right-aligned count. The whole row is the button. */
+.filter-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: none;
+  color: var(--fg);
+  font-size: var(--text-control);
+  text-align: left;
+  cursor: pointer;
+}
+
+.filter-row:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.filter-row[aria-pressed="false"] {
+  color: var(--fg-3);
+}
+
+.filter-row:disabled {
+  color: var(--fg-3);
+  cursor: default;
+}
+
+.filter-box {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--fg-3);
+  border-radius: var(--radius-small);
+}
+
+.filter-row[aria-pressed="true"] .filter-box {
+  border-color: var(--fg-2);
+  background: var(--fg-2);
+}
+
+/* The check is cut out in the page color, so it reads on every fill in both themes. */
+.filter-row[aria-pressed="true"] .filter-box::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 3.5px;
+  width: 3px;
+  height: 6px;
+  border: solid var(--bg);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+.filter-row[aria-pressed="true"] .filter-box.status-added {
+  border-color: var(--status-added);
+  background: var(--status-added);
+}
+
+.filter-row[aria-pressed="true"] .filter-box.status-modified {
+  border-color: var(--status-modified);
+  background: var(--status-modified);
+}
+
+.filter-row[aria-pressed="true"] .filter-box.status-deleted {
+  border-color: var(--status-deleted);
+  background: var(--status-deleted);
+}
+
+.filter-row[aria-pressed="true"] .filter-box.status-renamed {
+  border-color: var(--status-renamed);
+  background: var(--status-renamed);
+}
+
+.filter-row:disabled .filter-box {
+  border-color: var(--line-2);
+  background: none;
+}
+
+.filter-row:disabled .filter-box::after {
+  content: none;
+}
+
+.filter-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-count {
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A disabled row's note is words, not a number. */
+.filter-row:disabled .filter-count {
+  font-family: var(--font-sans);
+}
+
+.files-section {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.files-header {
   flex: none;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  padding: 2px 16px 8px;
+  padding: 10px 16px 6px;
 }
 
-.sidebar-heading {
-  margin: 0;
+.files-heading {
   overflow: hidden;
-  color: var(--fg-2);
-  font-size: var(--text-control);
-  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sidebar-count {
+.files-count {
   flex: none;
   color: var(--fg-3);
   font-size: var(--text-meta);
@@ -898,29 +1027,29 @@ input {
     gap: 12px;
   }
 
-  .toolbar {
-    gap: 8px 20px;
-    padding: 10px 12px;
+  .controls-bar {
+    flex-wrap: wrap;
+    padding: 8px 12px;
   }
 
-  .toolbar-end {
+  .crumbs {
+    flex-basis: 100%;
+  }
+
+  .controls-end {
+    flex-wrap: wrap;
     width: 100%;
-    margin-left: 0;
+    gap: 8px;
+  }
+
+  .control-group {
+    flex-basis: 100%;
   }
 
   .pattern-field {
-    flex: 1 1 0;
+    flex: 1 1 140px;
     width: auto;
     min-width: 0;
-  }
-
-  .crumb-row {
-    flex-wrap: wrap;
-    padding: 6px 12px;
-  }
-
-  .crumb-hint {
-    display: none;
   }
 
   .pr-main {
@@ -935,7 +1064,7 @@ input {
 
   .sidebar {
     margin-left: 0;
-    padding-top: 10px;
+    padding-top: 8px;
     border-top: 1px solid var(--line);
     border-left: 0;
   }
