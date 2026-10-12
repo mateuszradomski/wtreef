@@ -722,7 +722,8 @@ input {
 
 /* Full-width rows sit edge to edge, so their ring goes inside. */
 .filter-row:focus-visible,
-.file-row:focus-visible {
+.file-row:focus-visible,
+.tree-row:focus-visible {
   outline-offset: -2px;
 }
 

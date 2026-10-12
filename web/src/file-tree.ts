@@ -333,3 +333,53 @@ export function withFolderExpanded(
   }
   assert(false, "a chain end descends from its top");
 }
+
+/** What a key does in the tree, after the WAI-ARIA tree view pattern. */
+export const TreeKeyKind = { none: 0, focus: 1, expand: 2, collapse: 3 } as const;
+export type TreeKeyKind = (typeof TreeKeyKind)[keyof typeof TreeKeyKind];
+
+export interface TreeKeyAction {
+  readonly kind: TreeKeyKind;
+  readonly row: number;
+}
+
+const NO_KEY_ACTION: TreeKeyAction = { kind: TreeKeyKind.none, row: NO_ROW };
+
+/**
+ * The action for `key` pressed on `row`, among the first `rowLimit` rows
+ * (the rendered ones). Arrows, Home and End are always handled, if only by
+ * staying put, so they never scroll the list; `none` leaves the key to the
+ * browser, as for Enter on a file, which follows its link.
+ */
+export function treeKeyAction(tree: Tree, fileTree: FileTree, rowLimit: number, row: number, key: string): TreeKeyAction {
+  assert(rowLimit <= fileTree.rowCount, "only rendered rows are reachable");
+  assert(row >= 0 && row < rowLimit, "keys go to rendered rows");
+  if (key === "ArrowDown") return focusRow(Math.min(row + 1, rowLimit - 1));
+  if (key === "ArrowUp") return focusRow(Math.max(row - 1, 0));
+  if (key === "Home") return focusRow(0);
+  if (key === "End") return focusRow(rowLimit - 1);
+  const isFolder = isFolderRow(tree, fileTree, row);
+  const expanded = fileTree.rowExpanded[row] === 1;
+  if (key === "ArrowRight") {
+    if (!isFolder) return focusRow(row);
+    if (!expanded) return { kind: TreeKeyKind.expand, row };
+    const child = row + 1;
+    return child < rowLimit && fileTree.rowParents[child] === row ? focusRow(child) : focusRow(row);
+  }
+  if (key === "ArrowLeft") {
+    if (isFolder && expanded) return { kind: TreeKeyKind.collapse, row };
+    const parent = fileTree.rowParents[row] ?? NO_ROW;
+    return parent === NO_ROW ? focusRow(row) : focusRow(parent);
+  }
+  if (key === "Enter" || key === " ") {
+    if (isFolder) return { kind: expanded ? TreeKeyKind.collapse : TreeKeyKind.expand, row };
+    // A file row is a link: Enter follows it natively, and Space would only scroll the list.
+    return key === "Enter" ? NO_KEY_ACTION : focusRow(row);
+  }
+  return NO_KEY_ACTION;
+}
+
+function focusRow(row: number): TreeKeyAction {
+  assert(row >= 0, "focus goes to a row");
+  return { kind: TreeKeyKind.focus, row };
+}

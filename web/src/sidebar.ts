@@ -15,9 +15,12 @@ import {
   type FileTree,
   FileView,
   isFolderRow,
+  nearestRow,
   NO_ROW,
   rowForHoveredNode,
   rowLabel,
+  treeKeyAction,
+  TreeKeyKind,
 } from "./file-tree.ts";
 import { formatAdditions, formatCount, formatDeletions, plural } from "./format.ts";
 import type { TreeIndex } from "./model.ts";
@@ -63,6 +66,8 @@ export interface Sidebar {
   /** The view the rows were last rendered for. */
   fileView: FileView;
   highlightedRow: HTMLElement | null;
+  /** The node whose row is the tree's one Tab stop; it survives re-renders, falling back to its nearest shown ancestor. */
+  activeTreeNode: number;
 }
 
 export interface ChangedFilesInput {
@@ -113,6 +118,7 @@ export function createSidebar(filter: FilterSection, tree: Tree, index: TreeInde
     treeRows: [],
     fileView: FileView.tree,
     highlightedRow: null,
+    activeTreeNode: NO_NODE,
   };
   attachHoverEvents(list, ".file-row", callbacks);
   attachHoverEvents(treeView, ".tree-row", callbacks);
@@ -150,6 +156,39 @@ function attachTreeEvents(sidebar: Sidebar, callbacks: SidebarCallbacks): void {
     if (!isFolderRow(sidebar.tree, sidebar.fileTree, row)) return;
     toggleFolder(sidebar, callbacks, row);
   });
+  // A click focuses the row too, so the Tab stop follows the mouse as well as the keys.
+  sidebar.treeView.addEventListener("focusin", (event) => {
+    const row = treeRowOf(event.target);
+    if (row !== NO_ROW) moveTabStop(sidebar, row);
+  });
+  sidebar.treeView.addEventListener("keydown", (event) => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const row = treeRowOf(event.target);
+    if (row === NO_ROW) return;
+    const action = treeKeyAction(sidebar.tree, sidebar.fileTree, sidebar.treeRows.length, row, event.key);
+    if (action.kind === TreeKeyKind.none) return;
+    event.preventDefault();
+    if (action.kind === TreeKeyKind.focus) {
+      sidebar.treeRows[action.row]?.focus({ preventScroll: false });
+    } else {
+      setFolderExpanded(sidebar, callbacks, action.row, action.kind === TreeKeyKind.expand);
+    }
+  });
+}
+
+/** Roving tabindex: exactly one rendered row is in the Tab order. */
+function moveTabStop(sidebar: Sidebar, row: number): void {
+  const { fileTree } = sidebar;
+  assert(row >= 0 && row < sidebar.treeRows.length, "the Tab stop is a rendered row");
+  const previous = sidebar.activeTreeNode === NO_NODE ? NO_ROW : (fileTree.rowOfNode[sidebar.activeTreeNode] ?? NO_ROW);
+  if (previous !== NO_ROW && previous !== row) {
+    const previousRow = sidebar.treeRows[previous];
+    if (previousRow !== undefined) previousRow.tabIndex = -1;
+  }
+  const next = sidebar.treeRows[row];
+  assert(next !== undefined, "the Tab stop is a rendered row");
+  next.tabIndex = 0;
+  sidebar.activeTreeNode = fileTree.rowNodes[row] ?? 0;
 }
 
 /** The row index of the tree row containing `target`, or NO_ROW. */
@@ -160,11 +199,14 @@ function treeRowOf(target: EventTarget | null): number {
 }
 
 function toggleFolder(sidebar: Sidebar, callbacks: SidebarCallbacks, row: number): void {
+  setFolderExpanded(sidebar, callbacks, row, sidebar.fileTree.rowExpanded[row] !== 1);
+}
+
+function setFolderExpanded(sidebar: Sidebar, callbacks: SidebarCallbacks, row: number, expanded: boolean): void {
   const { fileTree } = sidebar;
   assert(row < fileTree.rowCount, "rendered rows come from the current model");
-  const top = fileTree.rowChainTops[row] ?? 0;
-  const end = fileTree.rowNodes[row] ?? 0;
-  callbacks.onFolderExpanded(top, end, fileTree.rowExpanded[row] !== 1);
+  assert(isFolderRow(sidebar.tree, fileTree, row), "only folders open and close");
+  callbacks.onFolderExpanded(fileTree.rowChainTops[row] ?? 0, fileTree.rowNodes[row] ?? 0, expanded);
 }
 
 export function syncFileViewChoice(sidebar: Sidebar, fileView: FileView): void {
@@ -277,9 +319,14 @@ function createChurnBar(additions: number, deletions: number, churnMax: number):
   return append(bar, filled);
 }
 
-/** Returns how many changed files pass the filters inside the zoom. */
+/**
+ * Returns how many changed files pass the filters inside the zoom. Rows are
+ * rebuilt, so keyboard focus moves to the new row for the same node: closing
+ * a folder with the keys keeps you on it.
+ */
 function renderFileTree(sidebar: Sidebar, input: ChangedFilesInput): number {
   const { fileTree } = sidebar;
+  const hadFocus = sidebar.treeView.contains(document.activeElement);
   computeFileTree(input.tree, input.index, input.weights, input.zoomNode, input.collapsedFolders, fileTree);
   const rendered = Math.min(fileTree.rowCount, TREE_ROWS_MAX);
   let additionsWidth = 0;
@@ -296,7 +343,17 @@ function renderFileTree(sidebar: Sidebar, input: ChangedFilesInput): number {
   sidebar.treeView.style.setProperty("--tree-additions-width", `${additionsWidth}ch`);
   sidebar.treeView.style.setProperty("--tree-deletions-width", `${deletionsWidth}ch`);
   sidebar.treeView.replaceChildren(...sidebar.treeRows);
+  if (sidebar.treeRows.length > 0) restoreTabStop(sidebar, hadFocus);
   return fileTree.visibleFiles[input.zoomNode] ?? 0;
+}
+
+function restoreTabStop(sidebar: Sidebar, hadFocus: boolean): void {
+  const found = sidebar.activeTreeNode === NO_NODE ? NO_ROW : nearestRow(sidebar.tree, sidebar.fileTree, sidebar.activeTreeNode);
+  const row = found === NO_ROW || found >= sidebar.treeRows.length ? 0 : found;
+  // The rows are new and all start out of the Tab order, so there is no previous stop to demote.
+  sidebar.activeTreeNode = NO_NODE;
+  moveTabStop(sidebar, row);
+  if (hadFocus) sidebar.treeRows[row]?.focus({ preventScroll: false });
 }
 
 /** Tree semantics in a flat list of rows: level, set size and position say what nesting would. */
@@ -308,6 +365,7 @@ function setTreeItem(row: HTMLElement, fileTree: FileTree, index: number): void 
   row.setAttribute("aria-posinset", String(fileTree.rowPositions[index] ?? 1));
   row.dataset["row"] = String(index);
   row.dataset["node"] = String(fileTree.rowNodes[index] ?? 0);
+  row.tabIndex = -1;
   // CSSOM, not a style attribute: the CSP forbids inline styles but allows this.
   row.style.setProperty("--tree-depth", String(level - 1));
 }

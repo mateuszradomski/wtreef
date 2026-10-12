@@ -1,6 +1,7 @@
 // Methodology: a hand-written tree small enough to state every expected row
 // as indented text (folders end in "/", closed ones are marked), checked
-// under filters, zoom and collapsed sets. Trees are built from paths and go
+// under filters, zoom and collapsed sets, and against the keys of the
+// WAI-ARIA tree view pattern. Trees are built from paths and go
 // through the real decoder, so they honor the wire contract. Then property
 // checks on the real fixture: every visible changed file appears exactly
 // once, levels and parents agree, siblings are ordered, and no row is a
@@ -17,6 +18,8 @@ import {
   NO_ROW,
   rowForHoveredNode,
   rowLabel,
+  treeKeyAction,
+  TreeKeyKind,
   withFolderExpanded,
 } from "./file-tree.ts";
 import { buildTreeIndex, computeWeights, DEFAULT_FILTERS, type Filters, type TreeIndex } from "./model.ts";
@@ -325,4 +328,40 @@ test("the real fixture: each visible file once, consistent levels, ordered sibli
     }
     assert.equal(total, scenario.fileTree.visibleFiles[0], "top-level rows account for every visible file");
   }
+});
+
+test("keys move between rows, open and close folders, and leave links to the browser", () => {
+  const scenario = createScenario(LEAVES);
+  const { tree, fileTree } = scenario;
+  compute(scenario, DEFAULT_FILTERS, 0, new Set([scenario.nodeOf("packages/backend")]));
+  const docs = rowOfPath(scenario, "docs");
+  const guide = rowOfPath(scenario, "docs/guide.md");
+  const packages = rowOfPath(scenario, "packages");
+  const backend = rowOfPath(scenario, "packages/backend");
+  const frontend = rowOfPath(scenario, "packages/frontend/src");
+  const last = fileTree.rowCount - 1;
+  const act = (row: number, key: string, rowLimit: number = fileTree.rowCount) => treeKeyAction(tree, fileTree, rowLimit, row, key);
+  const focus = (row: number) => ({ kind: TreeKeyKind.focus, row });
+
+  assert.deepEqual(act(docs, "ArrowDown"), focus(guide));
+  assert.deepEqual(act(guide, "ArrowUp"), focus(docs));
+  assert.deepEqual(act(docs, "ArrowUp"), focus(docs), "the first row stays put");
+  assert.deepEqual(act(last, "ArrowDown"), focus(last), "the last row stays put");
+  assert.deepEqual(act(packages, "Home"), focus(0));
+  assert.deepEqual(act(packages, "End"), focus(last));
+  assert.deepEqual(act(packages, "End", 4), focus(3), "rows past the rendering bound are out of reach");
+
+  assert.deepEqual(act(backend, "ArrowRight"), { kind: TreeKeyKind.expand, row: backend });
+  assert.deepEqual(act(packages, "ArrowRight"), focus(backend), "an open folder moves to its first child");
+  assert.deepEqual(act(guide, "ArrowRight"), focus(guide));
+  assert.deepEqual(act(frontend, "ArrowLeft"), { kind: TreeKeyKind.collapse, row: frontend });
+  assert.deepEqual(act(backend, "ArrowLeft"), focus(packages), "a closed folder moves to its parent");
+  assert.deepEqual(act(guide, "ArrowLeft"), focus(docs), "a file moves to its parent");
+  assert.deepEqual(act(packages, "ArrowLeft", 3), { kind: TreeKeyKind.collapse, row: packages });
+
+  assert.deepEqual(act(frontend, "Enter"), { kind: TreeKeyKind.collapse, row: frontend });
+  assert.deepEqual(act(backend, " "), { kind: TreeKeyKind.expand, row: backend });
+  assert.equal(act(guide, "Enter").kind, TreeKeyKind.none, "Enter on a file follows its link");
+  assert.deepEqual(act(guide, " "), focus(guide), "Space on a file is swallowed");
+  assert.equal(act(guide, "a").kind, TreeKeyKind.none);
 });
