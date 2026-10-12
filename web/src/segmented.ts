@@ -4,11 +4,13 @@
 // a choice goes through the callback, and syncSegmented mirrors it back.
 
 import { assert } from "./assert.ts";
+import { setTooltip } from "./control-tooltip.ts";
 import { button, element } from "./dom.ts";
 
 export interface SegmentedOption<Value extends string> {
   readonly value: Value;
   readonly label: string;
+  /** What choosing it does, for the tooltip. */
   readonly description: string;
 }
 
@@ -30,7 +32,7 @@ export function createSegmented<Value extends string>(
   for (const option of options) {
     const segment = button("segment", option.label);
     segment.setAttribute("role", "radio");
-    segment.title = option.description;
+    setTooltip(segment, option.description);
     segment.addEventListener("click", () => onChoose(option.value));
     buttons.set(option.value, segment);
     root.append(segment);

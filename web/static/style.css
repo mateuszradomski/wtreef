@@ -745,7 +745,7 @@ input {
   cursor: pointer;
 }
 
-.filter-row:hover:not(:disabled) {
+.filter-row:hover:not([aria-disabled="true"]) {
   background: var(--surface-2);
 }
 
@@ -761,12 +761,12 @@ input {
 }
 
 /* fg-3 is 4.46:1 on the light hover fill, so hovered quiet text steps up to fg-2. */
-.filter-row[aria-pressed="false"]:hover:not(:disabled),
-.filter-row:hover:not(:disabled) .filter-count {
+.filter-row[aria-pressed="false"]:hover:not([aria-disabled="true"]),
+.filter-row:hover:not([aria-disabled="true"]) .filter-count {
   color: var(--fg-2);
 }
 
-.filter-row:disabled {
+.filter-row[aria-disabled="true"] {
   color: var(--fg-3);
   cursor: default;
 }
@@ -817,12 +817,12 @@ input {
   background: var(--status-renamed);
 }
 
-.filter-row:disabled .filter-box {
+.filter-row[aria-disabled="true"] .filter-box {
   border-color: var(--line-2);
   background: none;
 }
 
-.filter-row:disabled .filter-box::after {
+.filter-row[aria-disabled="true"] .filter-box::after {
   content: none;
 }
 
@@ -846,7 +846,7 @@ input {
 }
 
 /* A disabled row's note is words, not a number. */
-.filter-row:disabled .filter-count {
+.filter-row[aria-disabled="true"] .filter-count {
   font-family: var(--font-sans);
 }
 
@@ -1319,8 +1319,19 @@ input {
   border: 1px solid var(--line-2);
   border-radius: var(--radius);
   background: var(--surface-2);
+  box-shadow: var(--shadow-float);
   font-size: var(--text-control);
   pointer-events: none;
+}
+
+/* Control tooltips: the same surface, holding a sentence or two of plain text, narrower so lines stay short. */
+.control-tooltip {
+  z-index: 15;
+  max-width: 300px;
+}
+
+.control-tooltip-text {
+  color: var(--fg);
 }
 
 .tooltip-title {

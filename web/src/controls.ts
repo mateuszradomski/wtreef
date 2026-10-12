@@ -3,6 +3,7 @@
 // Exclude patterns). Built once per PR; syncControls mirrors the view state
 // into it. It never owns state: every interaction goes through a callback.
 
+import { setTooltip } from "./control-tooltip.ts";
 import type { Tree } from "./decode.ts";
 import { append, button, element } from "./dom.ts";
 import { type Filters, SizeMode } from "./model.ts";
@@ -39,9 +40,21 @@ export interface ControlsInput {
 const NO_CRUMBS = -1;
 
 const SIZE_MODE_OPTIONS: readonly SegmentedOption<SizeMode>[] = [
-  { value: SizeMode.churn, label: "Churn", description: "Size tiles by lines added plus lines removed" },
-  { value: SizeMode.context, label: "Context", description: "Size tiles by file size, with unchanged files around the changes" },
+  {
+    value: SizeMode.churn,
+    label: "Churn",
+    description: "Tile size = lines added + removed. Shows where the PR does the most work. Unchanged files are left out.",
+  },
+  {
+    value: SizeMode.context,
+    label: "Context",
+    description:
+      "Tile size = file size in bytes. Shows the changes in proportion to the code around them, including unchanged files. Small edits to big files get big tiles.",
+  },
 ];
+
+const PATTERN_TOOLTIP =
+  "Regular expression matched against the full path, case-insensitive. Include keeps only matching files; Exclude removes them.";
 
 export function createControls(callbacks: ControlsCallbacks): Controls {
   const root = element("div", "controls-bar");
@@ -49,7 +62,7 @@ export function createControls(callbacks: ControlsCallbacks): Controls {
   crumbs.setAttribute("aria-label", "Folder");
   const crumbList = element("ol", "crumb-list");
   const escapeHint = element("kbd", "crumb-escape", "Esc");
-  escapeHint.title = "Press Esc to zoom out one folder";
+  setTooltip(escapeHint, "Press Esc to zoom out one folder.");
   escapeHint.hidden = true;
   append(crumbs, crumbList, escapeHint);
 
@@ -64,12 +77,16 @@ export function createControls(callbacks: ControlsCallbacks): Controls {
     label: "Include",
     // "e.g." keeps the example from reading as an active filter.
     placeholder: "e.g. src/.*\\.tsx?$",
+    tooltip: PATTERN_TOOLTIP,
+    tooltipNote: "Press / to jump here.",
     onCommit: callbacks.onInclude,
   });
   const exclude = createPatternField({
     name: "exclude",
     label: "Exclude",
     placeholder: "e.g. test|\\.snap$",
+    tooltip: PATTERN_TOOLTIP,
+    tooltipNote: "",
     onCommit: callbacks.onExclude,
   });
   const patterns = append(element("div", "pattern-fields"), include.root, exclude.root);
@@ -118,10 +135,11 @@ function renderBreadcrumbs(controls: Controls, tree: Tree, zoomNode: number, rep
     if (position === chain.length - 1) {
       const current = element("span", "crumb is-current", name);
       current.setAttribute("aria-current", "location");
+      setTooltip(current, "The folder the map shows. Click a folder on the map to zoom further in.");
       items.push(append(element("li", ""), current));
     } else {
       const crumb = button("crumb", name);
-      crumb.title = node === 0 ? "Back to the repository root" : `Zoom out to ${name}`;
+      setTooltip(crumb, node === 0 ? "Back to the whole repository." : `Zoom out to ${name}/.`);
       crumb.addEventListener("click", () => controls.onZoom(node));
       items.push(append(element("li", ""), crumb));
     }

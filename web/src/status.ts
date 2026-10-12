@@ -18,6 +18,15 @@ const LABELS: Readonly<Record<FileStatus, string>> = {
   [FileStatus.renamed]: "Renamed",
 };
 
+/** What each status means, in the words of someone reading the PR. */
+const DESCRIPTIONS: Readonly<Record<FileStatus, string>> = {
+  [FileStatus.unchanged]: "Files this PR does not touch.",
+  [FileStatus.added]: "Files this PR creates.",
+  [FileStatus.modified]: "Files this PR edits.",
+  [FileStatus.deleted]: "Files this PR removes. With no size left, Context sizes them by lines removed.",
+  [FileStatus.renamed]: "Files this PR moves or renames, with or without edits.",
+};
+
 const LETTERS: Readonly<Record<FileStatus, string>> = {
   [FileStatus.unchanged]: "",
   [FileStatus.added]: "A",
@@ -45,6 +54,10 @@ export function statusOf(value: number): FileStatus {
 
 export function statusLabel(status: FileStatus): string {
   return LABELS[status];
+}
+
+export function statusDescription(status: FileStatus): string {
+  return DESCRIPTIONS[status];
 }
 
 export function statusLetter(status: FileStatus): string {

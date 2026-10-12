@@ -12,11 +12,12 @@ export interface TooltipContent {
   /** Status swatch class and label, for changed files only. */
   readonly status: { readonly className: string; readonly label: string } | null;
   readonly facts: readonly string[];
-  /** What a click does, for clickable nodes; "" otherwise. */
+  /** What a click, an Alt-click and a right-click do; "" for nodes that do nothing. */
   readonly action: string;
 }
 
-export function describeNode(tree: Tree, index: TreeIndex, node: number): TooltipContent {
+/** `altKey` names the modifier as the keyboard prints it: "⌥" on Apple platforms, "Alt" elsewhere. */
+export function describeNode(tree: Tree, index: TreeIndex, node: number, altKey: string): TooltipContent {
   const kind = tree.kinds[node];
   const path = index.paths[node] ?? "";
   const bytes = index.subtreeBytes[node] ?? 0;
@@ -27,7 +28,8 @@ export function describeNode(tree: Tree, index: TreeIndex, node: number): Toolti
     return { title: `Other files in ${where}`, status: null, facts: [plural(files, "unchanged file", "unchanged files"), formatBytes(bytes)], action: "" };
   }
   if (kind === NodeKind.collapsedDirectory) {
-    return { title: `${path}/`, status: null, facts: ["unchanged folder", plural(files, "file", "files"), formatBytes(bytes)], action: "" };
+    const facts = ["unchanged folder", plural(files, "file", "files"), formatBytes(bytes)];
+    return { title: `${path}/`, status: null, facts, action: actionHint("", altKey) };
   }
   if (kind === NodeKind.directory) {
     const changed = index.subtreeChangedFiles[node] ?? 0;
@@ -36,10 +38,10 @@ export function describeNode(tree: Tree, index: TreeIndex, node: number): Toolti
       formatChurn(index.subtreeAdditions[node] ?? 0, index.subtreeDeletions[node] ?? 0),
       formatBytes(bytes),
     ];
-    return { title: `${path}/`, status: null, facts, action: `Click to zoom into ${tree.names[node] ?? ""}` };
+    return { title: `${path}/`, status: null, facts, action: actionHint("Click to zoom in", altKey) };
   }
   if (!isChangedFile(tree, node)) {
-    return { title: path, status: null, facts: ["unchanged", formatBytes(bytes)], action: "" };
+    return { title: path, status: null, facts: ["unchanged", formatBytes(bytes)], action: actionHint("", altKey) };
   }
   const status = statusOf(tree.statuses[node] ?? 0);
   const facts = [formatChurn(tree.additions[node] ?? 0, tree.deletions[node] ?? 0)];
@@ -52,8 +54,14 @@ export function describeNode(tree: Tree, index: TreeIndex, node: number): Toolti
     title: path,
     status: { className: statusClassName(status), label: statusLabel(status) },
     facts,
-    action: "Click to open the diff",
+    action: actionHint("Click to open the diff", altKey),
   };
+}
+
+/** What a plain click does, if anything, then the secondary actions every node with a path has. */
+function actionHint(click: string, altKey: string): string {
+  const secondary = `${altKey}-click to hide · Right-click for more`;
+  return click === "" ? secondary : `${click} · ${secondary}`;
 }
 
 export interface Tooltip {

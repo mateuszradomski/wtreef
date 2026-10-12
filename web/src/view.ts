@@ -12,6 +12,7 @@ import { assert } from "./assert.ts";
 import { NodeKind, type PullRequestData, type Tree } from "./decode.ts";
 import { computeDiffUrls, filesTabUrl } from "./diff.ts";
 import { type ContextMenu, createContextMenu, type MenuOpening, openContextMenu } from "./context-menu.ts";
+import { type ControlTooltip, hideControlTooltip, installControlTooltip } from "./control-tooltip.ts";
 import { createControls, type Controls, type ControlsCallbacks, syncControls } from "./controls.ts";
 import { append, element } from "./dom.ts";
 import { type FileView, withFolderExpanded } from "./file-tree.ts";
@@ -43,6 +44,7 @@ import {
 } from "./model.ts";
 import { displayPath, NodeAction, nodeMenuItems } from "./node-actions.ts";
 import { parsePathPattern } from "./pattern.ts";
+import { altKeyLabel, currentPlatform } from "./platform.ts";
 import { parseViewQuery, serializeViewQuery } from "./query.ts";
 import { type ChartPalette, computeTileStyles, drawBase, drawHighlight, readChartPalette, type TileStyles } from "./render.ts";
 import {
@@ -70,6 +72,8 @@ export interface ViewState {
   readonly data: PullRequestData;
   readonly tree: Tree;
   readonly index: TreeIndex;
+  /** "⌥" or "Alt", as hints name the hide modifier on this platform. */
+  readonly altKey: string;
   /** Filled asynchronously after load; "" until then and for unchanged nodes. */
   diffUrls: readonly string[];
   filters: Filters;
@@ -126,6 +130,7 @@ export interface View {
   readonly tooltip: Tooltip;
   readonly menu: ContextMenu;
   readonly toast: Toast;
+  readonly controlTooltip: ControlTooltip;
 }
 
 export function mountPullRequestView(root: HTMLElement, data: PullRequestData, search: string): View {
@@ -142,7 +147,8 @@ export function mountPullRequestView(root: HTMLElement, data: PullRequestData, s
   const filterSection = createFilterSection(state.tree, state.index, filterCallbacks(getView), !window.matchMedia(NARROW_LAYOUT_QUERY).matches);
   const sidebar = createSidebar(filterSection, state.tree, state.index, sidebarCallbacks(getView));
   const toast = createToast();
-  view = { state, header: createHeader(data), map, controls, sidebar, tooltip: createTooltip(), menu: createContextMenu(), toast };
+  const menu = createContextMenu();
+  view = { state, header: createHeader(data), map, controls, sidebar, tooltip: createTooltip(), menu, toast, controlTooltip: installControlTooltip() };
 
   const shell = element("div", "pr-view");
   shell.append(view.header.root);
@@ -150,7 +156,7 @@ export function mountPullRequestView(root: HTMLElement, data: PullRequestData, s
   if (banner !== null) shell.append(banner);
   shell.append(controls.root);
   map.container.append(toast.root);
-  shell.append(append(element("div", "pr-main"), map.container, sidebar.root), view.tooltip.root, view.menu.root);
+  shell.append(append(element("div", "pr-main"), map.container, sidebar.root), view.tooltip.root, view.controlTooltip.root, menu.root);
   root.replaceChildren(shell);
   document.title = `${data.pullRequest.owner}/${data.pullRequest.repo}#${data.pullRequest.number} · wtreef`;
 
@@ -236,6 +242,7 @@ function createState(data: PullRequestData, search: string): ViewState {
     data,
     tree,
     index,
+    altKey: altKeyLabel(currentPlatform()),
     diffUrls: [],
     filters: query.filters,
     zoomNode,
@@ -431,7 +438,7 @@ function updateCanvasHover(view: View): void {
     hideTooltip(view.tooltip);
   } else {
     const described = chainEnd(state.layout, hovered);
-    if (view.tooltip.node !== described) fillTooltip(view.tooltip, described, describeNode(state.tree, state.index, described));
+    if (view.tooltip.node !== described) fillTooltip(view.tooltip, described, describeNode(state.tree, state.index, described, state.altKey));
     moveTooltip(view.tooltip, state.pointerClientX, state.pointerClientY);
   }
   if (hovered === state.hoveredNode) return;
@@ -564,6 +571,7 @@ function openNodeMenu(view: View, node: number, opening: MenuOpening): void {
   }));
   if (items.length === 0) return;
   hideTooltip(view.tooltip);
+  hideControlTooltip(view.controlTooltip);
   openContextMenu(view.menu, displayPath(state.tree, state.index.paths, node), items, opening);
 }
 

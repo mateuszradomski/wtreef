@@ -8,6 +8,7 @@ import { assert } from "./assert.ts";
 import { churnIntensity } from "./color.ts";
 import type { Tree } from "./decode.ts";
 import type { MenuOpening } from "./context-menu.ts";
+import { setTooltip } from "./control-tooltip.ts";
 import { append, element, link } from "./dom.ts";
 import type { FilterSection } from "./filter-section.ts";
 import {
@@ -43,8 +44,8 @@ const ROW_SELECTOR = ".file-row, .tree-row";
 const KEYBOARD_MENU_INSET_PX = 16;
 
 const FILE_VIEW_OPTIONS: readonly SegmentedOption<FileView>[] = [
-  { value: FileView.tree, label: "Tree", description: "Changed files in their folders" },
-  { value: FileView.list, label: "List", description: "Changed files by lines changed, most first" },
+  { value: FileView.tree, label: "Tree", description: "Changed files in their folders, as on the map." },
+  { value: FileView.list, label: "List", description: "Changed files in one list, most lines changed first." },
 ];
 
 export interface SidebarCallbacks {
@@ -295,7 +296,11 @@ export function renderChangedFiles(sidebar: Sidebar, input: ChangedFilesInput): 
   // The heading shares its line with the count and the view toggle, so it names only the zoomed folder; the breadcrumbs and the title have the path.
   const zoomName = input.zoomPath.slice(input.zoomPath.lastIndexOf("/") + 1);
   sidebar.heading.textContent = input.zoomPath === "" ? "Changed files" : `Changed in ${zoomName}/`;
-  sidebar.heading.title = input.zoomPath === "" ? "" : `Changed in ${input.zoomPath}/`;
+  if (input.zoomPath === "") {
+    delete sidebar.heading.dataset["tooltip"];
+  } else {
+    setTooltip(sidebar.heading, `Changed in ${input.zoomPath}/`);
+  }
   const total = input.index.changedFiles.length;
   let matching = 0;
   let footer = "";
@@ -357,13 +362,13 @@ function createListRow(node: number, input: ChangedFilesInput): HTMLAnchorElemen
   const pathElement = element("span", "file-path");
   if (slash >= 0) pathElement.append(element("span", "file-directory", shownPath.slice(0, slash + 1)));
   pathElement.append(element("span", "file-name", shownPath.slice(slash + 1)));
-  pathElement.title = path;
+  setTooltip(pathElement, path);
 
   const additions = tree.additions[node] ?? 0;
   const deletions = tree.deletions[node] ?? 0;
   row.setAttribute("aria-label", `${statusLabel(status)} ${path}, ${additions} added, ${deletions} deleted. Opens the diff on GitHub.`);
   const counts = createLineCounts(additions, deletions);
-  append(row, createStatusLetter(tree, node), pathElement, createHideControl(tree.names[node] ?? ""), ...counts, createChurnBar(additions, deletions, index.churnMax));
+  append(row, createStatusLetter(tree, node), pathElement, createHideControl(tree.names[node] ?? "", false), ...counts, createChurnBar(additions, deletions, index.churnMax));
   return row;
 }
 
@@ -376,7 +381,7 @@ function diffUrlOf(input: ChangedFilesInput, node: number): string {
 function createStatusLetter(tree: Tree, node: number): HTMLElement {
   const status = statusOf(tree.statuses[node] ?? 0);
   const letter = element("span", `file-status ${statusClassName(status)}`, statusLetter(status));
-  letter.title = statusLabel(status);
+  setTooltip(letter, statusLabel(status));
   return letter;
 }
 
@@ -463,14 +468,14 @@ function createFolderRow(input: ChangedFilesInput, fileTree: FileTree, index: nu
   const chevron = element("span", "tree-chevron");
   chevron.setAttribute("aria-hidden", "true");
   const name = createChainName(label);
-  name.title = `${input.index.paths[node] ?? ""}/`;
+  setTooltip(name, `${input.index.paths[node] ?? ""}/`);
   const additions = fileTree.visibleAdditions[node] ?? 0;
   const deletions = fileTree.visibleDeletions[node] ?? 0;
   const files = plural(fileTree.visibleFiles[node] ?? 0, "changed file", "changed files");
   const count = element("span", "tree-count", formatCount(fileTree.visibleFiles[node] ?? 0));
-  count.title = files;
+  setTooltip(count, files);
   row.setAttribute("aria-label", `${label}, ${files}, ${additions} added, ${deletions} deleted`);
-  append(row, append(element("span", "tree-label"), chevron, name, count), createHideControl(label), ...createLineCounts(additions, deletions));
+  append(row, append(element("span", "tree-label"), chevron, name, count), createHideControl(label, true), ...createLineCounts(additions, deletions));
   return row;
 }
 
@@ -489,14 +494,14 @@ function createTreeFileRow(input: ChangedFilesInput, fileTree: FileTree, index: 
   const row = link("tree-row tree-file", diffUrlOf(input, node), "", true);
   setTreeItem(row, fileTree, index);
   const name = element("span", "tree-name", tree.names[node] ?? "");
-  name.title = input.index.paths[node] ?? "";
+  setTooltip(name, input.index.paths[node] ?? "");
   const additions = tree.additions[node] ?? 0;
   const deletions = tree.deletions[node] ?? 0;
   const status = statusLabel(statusOf(tree.statuses[node] ?? 0));
   row.setAttribute("aria-label", `${status} ${tree.names[node] ?? ""}, ${additions} added, ${deletions} deleted. Opens the diff on GitHub.`);
   const label = append(element("span", "tree-label"), createStatusLetter(tree, node), name);
   const counts = createLineCounts(additions, deletions);
-  append(row, label, createHideControl(tree.names[node] ?? ""), ...counts, createChurnBar(additions, deletions, input.index.churnMax));
+  append(row, label, createHideControl(tree.names[node] ?? "", false), ...counts, createChurnBar(additions, deletions, input.index.churnMax));
   return row;
 }
 
@@ -507,11 +512,13 @@ function createTreeFileRow(input: ChangedFilesInput, fileTree: FileTree, index: 
  * same. It is no <button> either, since links cannot contain one; clicks
  * reach it through attachRowActionEvents.
  */
-function createHideControl(name: string): HTMLElement {
+function createHideControl(name: string, isFolder: boolean): HTMLElement {
   const control = element("span", "row-hide");
   control.setAttribute("role", "button");
   control.setAttribute("aria-label", `Hide ${name}`);
   control.setAttribute("aria-keyshortcuts", HIDE_KEY);
+  const what = isFolder ? "Hide this folder, with everything in it," : "Hide this file";
+  setTooltip(control, `${what} from the map and the file list.`, `Shortcut: ${HIDE_KEY}`);
   control.append(createIcon(IconKind.hide));
   return control;
 }
