@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { decodePullRequestData, NodeKind, type Tree } from "./decode.ts";
-import { computeLayout, createLayout, LAYOUT, type Layout, LayoutFlag, squarify } from "./layout.ts";
+import { chainEnd, chainTop, computeLayout, createLayout, LAYOUT, type Layout, LayoutFlag, squarify } from "./layout.ts";
 import { buildTreeIndex, computeWeights, DEFAULT_FILTERS, SizeMode, type TreeIndex } from "./model.ts";
 import { loadFixtureJson, REAL_FIXTURE, TINY_FIXTURE } from "./test-support.ts";
 
@@ -86,11 +86,18 @@ function checkLayoutInvariants(tree: Tree, index: TreeIndex, weights: Float64Arr
     const parent = tree.parents[node]!;
     assert.equal(seen[parent], 1, `parent of ${node} must be drawn first`);
     const parentRect = rectOf(layout, parent);
-    const headerOffset = ((layout.flags[parent] ?? 0) & LayoutFlag.header) !== 0 ? LAYOUT.headerHeight : 0;
-    assert.ok(rect.x >= parentRect.x + LAYOUT.padding, `node ${node} left of its parent's content`);
-    assert.ok(rect.y >= parentRect.y + LAYOUT.padding + headerOffset, `node ${node} above its parent's content`);
-    assert.ok(rect.x + rect.width <= parentRect.x + parentRect.width - LAYOUT.padding, `node ${node} right of content`);
-    assert.ok(rect.y + rect.height <= parentRect.y + parentRect.height - LAYOUT.padding, `node ${node} below content`);
+    const parentFlags = layout.flags[parent] ?? 0;
+    const headerOffset = (parentFlags & LayoutFlag.header) !== 0 ? LAYOUT.headerHeight : 0;
+    const padding = (parentFlags & LayoutFlag.chained) !== 0 ? 0 : LAYOUT.padding;
+    assert.ok(rect.x >= parentRect.x + padding, `node ${node} left of its parent's content`);
+    assert.ok(rect.y >= parentRect.y + padding + headerOffset, `node ${node} above its parent's content`);
+    assert.ok(rect.x + rect.width <= parentRect.x + parentRect.width - padding, `node ${node} right of content`);
+    assert.ok(rect.y + rect.height <= parentRect.y + parentRect.height - padding, `node ${node} below content`);
+    if (((layout.flags[node] ?? 0) & LayoutFlag.chained) !== 0) {
+      assert.equal(layout.chainChild[parent], node, `chained node ${node} is its parent's chain child`);
+      assert.equal(rect.x, parentRect.x + padding, "a chained directory fills its parent's content box");
+      assert.equal(rect.width, parentRect.width - 2 * padding, "a chained directory fills its parent's content box");
+    }
   }
   for (let node = 0; node < tree.nodeCount; node++) {
     if (seen[node] === 0) continue;
@@ -153,6 +160,25 @@ test("zooming lays out only the zoomed subtree, and empty roots lay out nothing"
   weights.fill(0);
   computeLayout(tree, index, weights, 0, 600, 400, layout);
   assert.equal(layout.drawCount, 0);
+});
+
+test("single-child folder chains share one header", () => {
+  const { tree, index, weights, layout } = layoutFixture(REAL_FIXTURE, 1280, 800, SizeMode.churn);
+  let chains = 0;
+  for (let node = 0; node < tree.nodeCount; node++) {
+    if (((layout.flags[node] ?? 0) & LayoutFlag.chained) === 0) continue;
+    chains++;
+    const parent = tree.parents[node]!;
+    assert.notEqual(parent, layout.rootNode, "the root never chains: it has no header to name the chain");
+    assert.equal((layout.flags[node] ?? 0) & LayoutFlag.header, 0, "chained folders draw no header");
+    let visibleSiblings = 0;
+    for (let cursor = index.childStart[parent]!; cursor < index.childStart[parent + 1]!; cursor++) {
+      if ((weights[index.childIndices[cursor]!] ?? 0) > 0) visibleSiblings++;
+    }
+    assert.equal(visibleSiblings, 1);
+    assert.equal(chainTop(tree, layout, chainEnd(layout, node)), chainTop(tree, layout, node));
+  }
+  assert.ok(chains > 0, "the l2beat PR has single-child folder chains in Churn mode");
 });
 
 test("layout is deterministic", () => {

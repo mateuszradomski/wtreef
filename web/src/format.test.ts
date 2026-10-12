@@ -2,7 +2,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatBytes, formatChurn, formatCount, formatWait, plural } from "./format.ts";
+import { formatBytes, formatChurn, formatChurnNonZero, formatCount, formatWait, plural } from "./format.ts";
 
 test("formats counts with grouping", () => {
   assert.equal(formatCount(0), "0");
@@ -21,6 +21,13 @@ test("formats bytes at unit boundaries", () => {
 
 test("formats churn with a real minus sign", () => {
   assert.equal(formatChurn(10859, 109), "+10,859 −109");
+});
+
+test("drops the zero side of churn in compact labels", () => {
+  assert.equal(formatChurnNonZero(441, 0), "+441");
+  assert.equal(formatChurnNonZero(0, 85), "\u221285");
+  assert.equal(formatChurnNonZero(40, 12), "+40 \u221212");
+  assert.equal(formatChurnNonZero(0, 0), "\u00b10");
 });
 
 test("pluralizes", () => {

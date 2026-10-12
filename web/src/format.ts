@@ -37,6 +37,14 @@ export function formatChurn(additions: number, deletions: number): string {
   return `${formatAdditions(additions)} ${formatDeletions(deletions)}`;
 }
 
+/** Drops a zero side, so a new file reads "+120" rather than "+120 −0"; a pure rename reads "±0". */
+export function formatChurnNonZero(additions: number, deletions: number): string {
+  if (additions === 0 && deletions === 0) return "\u00b10";
+  if (deletions === 0) return formatAdditions(additions);
+  if (additions === 0) return formatDeletions(deletions);
+  return formatChurn(additions, deletions);
+}
+
 export function plural(count: number, singular: string, pluralForm: string): string {
   return `${formatCount(count)} ${count === 1 ? singular : pluralForm}`;
 }

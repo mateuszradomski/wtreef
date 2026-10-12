@@ -24,12 +24,22 @@ export const LayoutFlag = {
   header: 2,
   /** A directory whose children were laid out; without it a directory draws as a summary tile. */
   open: 4,
+  /**
+   * The only visible child of its directory and itself a directory: it fills
+   * the parent's content box with no frame or header of its own, and the
+   * parent's header names the whole chain ("pages/blobs/components").
+   */
+  chained: 8,
 } as const;
+
+export const NO_CHAIN = -1;
 
 export interface Layout {
   /** x, y, width, height per node in CSS pixels; meaningful only where `laidOut` is set. */
   readonly rects: Float32Array;
   readonly flags: Uint8Array;
+  /** The chained child of each node, or NO_CHAIN. */
+  readonly chainChild: Int32Array;
   /** Nodes in paint order: parents before children. */
   readonly drawOrder: Uint32Array;
   drawCount: number;
@@ -47,6 +57,7 @@ export function createLayout(nodeCount: number): Layout {
   return {
     rects: new Float32Array(nodeCount * 4),
     flags: new Uint8Array(nodeCount),
+    chainChild: new Int32Array(nodeCount).fill(NO_CHAIN),
     drawOrder: new Uint32Array(nodeCount),
     drawCount: 0,
     rootNode: 0,
@@ -71,6 +82,7 @@ export function computeLayout(
   assert(weights.length === tree.nodeCount, "weights must be sized for this tree");
   assert(tree.kinds[rootNode] === NodeKind.directory, "layout root must be a directory");
   layout.flags.fill(0);
+  layout.chainChild.fill(NO_CHAIN);
   layout.drawCount = 0;
   layout.rootNode = rootNode;
   layout.width = width;
@@ -84,7 +96,7 @@ export function computeLayout(
   for (let head = 0; head < layout.drawCount; head++) {
     const node = layout.drawOrder[head] ?? 0;
     if (tree.kinds[node] !== NodeKind.directory) continue;
-    layoutDirectory(index, weights, node, node === rootNode, layout);
+    layoutDirectory(tree, index, weights, node, node === rootNode, layout);
   }
   assert(layout.drawCount <= tree.nodeCount, "each node is laid out at most once");
 }
@@ -98,6 +110,7 @@ function setRect(layout: Layout, node: number, x: number, y: number, width: numb
 }
 
 function layoutDirectory(
+  tree: Tree,
   index: TreeIndex,
   weights: Float64Array,
   node: number,
@@ -109,15 +122,18 @@ function layoutDirectory(
   const y = layout.rects[offset + 1] ?? 0;
   const width = layout.rects[offset + 2] ?? 0;
   const height = layout.rects[offset + 3] ?? 0;
-  const hasHeader = !isRoot && width >= LAYOUT.headerWidthMin && height >= LAYOUT.headerHeightMin;
+  const isChained = ((layout.flags[node] ?? 0) & LayoutFlag.chained) !== 0;
+  const hasHeader = !isRoot && !isChained && width >= LAYOUT.headerWidthMin && height >= LAYOUT.headerHeightMin;
   if (hasHeader) layout.flags[node]! |= LayoutFlag.header;
 
-  const top = y + LAYOUT.padding + (hasHeader ? LAYOUT.headerHeight : 0);
-  const left = x + LAYOUT.padding;
+  // A chained directory already sits inside its parent's padding.
+  const padding = isChained ? 0 : LAYOUT.padding;
+  const top = y + padding + (hasHeader ? LAYOUT.headerHeight : 0);
+  const left = x + padding;
   // The gap trails each child, so the content box grows by one gap and the
   // last row's trailing gap falls outside it.
-  const contentWidth = width - 2 * LAYOUT.padding + LAYOUT.gap;
-  const contentHeight = y + height - LAYOUT.padding - top + LAYOUT.gap;
+  const contentWidth = width - 2 * padding + LAYOUT.gap;
+  const contentHeight = y + height - padding - top + LAYOUT.gap;
   if (contentWidth < LAYOUT.tileSideMin + LAYOUT.gap || contentHeight < LAYOUT.tileSideMin + LAYOUT.gap) return;
 
   const count = collectChildren(index, weights, node, layout);
@@ -134,6 +150,34 @@ function layoutDirectory(
   for (let child = 0; child < count; child++) {
     placeChild(layout, layout.scratchNodes[child] ?? 0, child);
   }
+  // The root has no header to carry a chain's name, so its children keep their own.
+  const onlyChild = layout.scratchNodes[0] ?? 0;
+  const onlyChildPlaced = ((layout.flags[onlyChild] ?? 0) & LayoutFlag.laidOut) !== 0;
+  if (!isRoot && count === 1 && onlyChildPlaced && tree.kinds[onlyChild] === NodeKind.directory) {
+    layout.flags[onlyChild]! |= LayoutFlag.chained;
+    layout.chainChild[node] = onlyChild;
+  }
+}
+
+/** The deepest directory of the chain starting at `node` (itself when unchained). */
+export function chainEnd(layout: Layout, node: number): number {
+  let current = node;
+  for (let depth = 0; depth < layout.chainChild.length; depth++) {
+    const next = layout.chainChild[current] ?? NO_CHAIN;
+    if (next === NO_CHAIN) return current;
+    current = next;
+  }
+  assert(false, "chains are bounded by the tree depth");
+}
+
+/** The directory whose frame and header draw the chain that `node` belongs to. */
+export function chainTop(tree: Tree, layout: Layout, node: number): number {
+  let current = node;
+  for (let depth = 0; depth < layout.chainChild.length; depth++) {
+    if (((layout.flags[current] ?? 0) & LayoutFlag.chained) === 0) return current;
+    current = tree.parents[current] ?? 0;
+  }
+  assert(false, "chains are bounded by the tree depth");
 }
 
 /** Writes the children with positive weight into scratchNodes, heaviest first. */

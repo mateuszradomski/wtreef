@@ -5,8 +5,8 @@
 import { assert } from "./assert.ts";
 import { type DiffScale, diffColor, pickInk, parseHexColor, type Rgb, rgbToHex, rgbToOklab } from "./color.ts";
 import { FileStatus, NodeKind, type Tree } from "./decode.ts";
-import { formatChurn, formatCount } from "./format.ts";
-import { LAYOUT, type Layout, LayoutFlag } from "./layout.ts";
+import { formatChurnNonZero, formatCount } from "./format.ts";
+import { LAYOUT, type Layout, LayoutFlag, NO_CHAIN } from "./layout.ts";
 import { churnOf, isChangedFile, type TreeIndex } from "./model.ts";
 
 export interface ChartPalette {
@@ -129,9 +129,10 @@ export function drawBase(context: CanvasRenderingContext2D, scene: Scene, pixelR
     if (node === layout.rootNode) continue;
     const dimmed = scene.searchActive && scene.searchMatches[node] === 0;
     context.globalAlpha = dimmed ? SEARCH_DIM_ALPHA : 1;
-    const isOpenDirectory = ((layout.flags[node] ?? 0) & LayoutFlag.open) !== 0;
-    if (tree.kinds[node] === NodeKind.directory && isOpenDirectory) {
-      drawFrame(context, scene, node);
+    const flags = layout.flags[node] ?? 0;
+    if (tree.kinds[node] === NodeKind.directory && (flags & LayoutFlag.open) !== 0) {
+      // A chained folder has no frame of its own: its chain top drew it.
+      if ((flags & LayoutFlag.chained) === 0) drawFrame(context, scene, node);
     } else {
       drawTile(context, scene, node);
     }
@@ -154,8 +155,20 @@ function drawFrame(context: CanvasRenderingContext2D, scene: Scene, node: number
   if (((layout.flags[node] ?? 0) & LayoutFlag.header) === 0) return;
   context.font = `${LABEL.nameSizePx}px ${palette.fontSans}`;
   context.fillStyle = palette.frameText;
-  const label = fitText(context, scene.tree.names[node] ?? "", width - 2 * LABEL.paddingX);
+  const label = fitText(context, chainLabel(scene, node), width - 2 * LABEL.paddingX);
   context.fillText(label, x + LABEL.paddingX, y + LAYOUT.padding + HEADER_BASELINE_Y);
+}
+
+/** "pages/blobs/components" for a chain of single-child folders; just the name otherwise. */
+function chainLabel(scene: Scene, node: number): string {
+  const { layout, tree } = scene;
+  let label = tree.names[node] ?? "";
+  let current = layout.chainChild[node] ?? NO_CHAIN;
+  for (let depth = 0; current !== NO_CHAIN && depth < tree.nodeCount; depth++) {
+    label += `/${tree.names[current] ?? ""}`;
+    current = layout.chainChild[current] ?? NO_CHAIN;
+  }
+  return label;
 }
 
 function drawTile(context: CanvasRenderingContext2D, scene: Scene, node: number): void {
@@ -188,10 +201,10 @@ function tileLabelLines(scene: Scene, node: number): readonly [string, string] {
   const name = tree.names[node] ?? "";
   if (kind === NodeKind.collapsedDirectory) return [`${name}/`, `${formatCount(fileCount)} files`];
   if (kind === NodeKind.directory) {
-    return [`${name}/`, formatChurn(index.subtreeAdditions[node] ?? 0, index.subtreeDeletions[node] ?? 0)];
+    return [`${name}/`, formatChurnNonZero(index.subtreeAdditions[node] ?? 0, index.subtreeDeletions[node] ?? 0)];
   }
   if (!isChangedFile(tree, node)) return [name, ""];
-  return [name, formatChurn(tree.additions[node] ?? 0, tree.deletions[node] ?? 0)];
+  return [name, formatChurnNonZero(tree.additions[node] ?? 0, tree.deletions[node] ?? 0)];
 }
 
 /** 45° hatch marks rest nodes as "everything else here", distinct from any single file. */
