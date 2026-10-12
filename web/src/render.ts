@@ -6,7 +6,7 @@ import { assert } from "./assert.ts";
 import { type DiffScale, diffColor, pickInk, parseHexColor, type Rgb, rgbToHex, rgbToOklab } from "./color.ts";
 import { FileStatus, NodeKind, type Tree } from "./decode.ts";
 import { formatChurnNonZero, formatCount } from "./format.ts";
-import { LAYOUT, type Layout, LayoutFlag, NO_CHAIN } from "./layout.ts";
+import { chainTop, LAYOUT, type Layout, LayoutFlag, NO_CHAIN } from "./layout.ts";
 import { churnOf, isChangedFile, type TreeIndex } from "./model.ts";
 
 export interface ChartPalette {
@@ -14,6 +14,7 @@ export interface ChartPalette {
   readonly frame: string;
   readonly frameLine: string;
   readonly frameText: string;
+  readonly frameTextHover: string;
   readonly contextText: string;
   readonly tileFile: Rgb;
   readonly tileCollapsed: Rgb;
@@ -38,6 +39,7 @@ export function readChartPalette(readToken: (name: string) => string): ChartPale
     frame: css("--frame"),
     frameLine: css("--frame-line"),
     frameText: css("--fg-3"),
+    frameTextHover: css("--fg"),
     contextText: css("--fg-3"),
     tileFile,
     tileCollapsed: color("--tile-collapsed"),
@@ -102,6 +104,7 @@ export interface Scene {
 
 const LABEL = {
   paddingX: 4,
+  headerSizePx: 10,
   nameSizePx: 11,
   numbersSizePx: 10,
   firstBaselineY: 12,
@@ -110,7 +113,8 @@ const LABEL = {
   heightMin: 16,
   secondLineHeightMin: 30,
 } as const;
-const HEADER_BASELINE_Y = 12;
+/** From the top of the header band; 10px type fits its descenders in the 12px band. */
+const HEADER_BASELINE_Y = 9;
 const HATCH_SPACING_PX = 6;
 
 export function drawBase(context: CanvasRenderingContext2D, scene: Scene, pixelRatio: number): void {
@@ -127,7 +131,7 @@ export function drawBase(context: CanvasRenderingContext2D, scene: Scene, pixelR
       // A chained folder has no frame of its own: its chain top drew it.
       if ((flags & LayoutFlag.chained) !== 0) continue;
       drawFrame(context, scene, node);
-      if ((flags & LayoutFlag.header) !== 0) drawFrameHeader(context, scene, node);
+      if ((flags & LayoutFlag.header) !== 0) drawFrameHeader(context, scene, node, scene.palette.frameText);
     } else {
       drawTile(context, scene, node);
       drawTileLabel(context, scene, node);
@@ -149,13 +153,14 @@ function drawFrame(context: CanvasRenderingContext2D, scene: Scene, node: number
   context.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1);
 }
 
-function drawFrameHeader(context: CanvasRenderingContext2D, scene: Scene, node: number): void {
+/** Header text sits on the frame's own background: no strip, so nesting reads as indentation, not as stacked bars. */
+function drawFrameHeader(context: CanvasRenderingContext2D, scene: Scene, node: number, color: string): void {
   const { layout, palette } = scene;
   const x = layout.rects[node * 4] ?? 0;
   const y = layout.rects[node * 4 + 1] ?? 0;
   const width = layout.rects[node * 4 + 2] ?? 0;
-  context.font = `${LABEL.nameSizePx}px ${palette.fontSans}`;
-  context.fillStyle = palette.frameText;
+  context.font = `${LABEL.headerSizePx}px ${palette.fontSans}`;
+  context.fillStyle = color;
   const label = fitText(context, chainLabel(scene, node), width - 2 * LABEL.paddingX);
   context.fillText(label, x + LABEL.paddingX, y + LAYOUT.padding + HEADER_BASELINE_Y);
 }
@@ -256,14 +261,13 @@ function fitText(context: CanvasRenderingContext2D, text: string, widthMax: numb
   return fits === 0 ? "" : text.slice(0, fits).trimEnd() + ELLIPSIS;
 }
 
-/** Clears the overlay and outlines `node` when it is laid out. */
-export function drawHighlight(
-  context: CanvasRenderingContext2D,
-  layout: Layout,
-  palette: ChartPalette,
-  node: number,
-  pixelRatio: number,
-): void {
+/**
+ * Clears the overlay and marks `node` when it is laid out. An open folder
+ * is marked as a whole: its chain's frame is outlined and its header
+ * brightened, because the frame (header and padding) is what a click zooms.
+ */
+export function drawHighlight(context: CanvasRenderingContext2D, scene: Scene, node: number, pixelRatio: number): void {
+  const { layout, tree } = scene;
   context.setTransform(1, 0, 0, 1, 0, 0);
   context.clearRect(0, 0, context.canvas.width, context.canvas.height);
   if (node < 0) return;
@@ -271,6 +275,16 @@ export function drawHighlight(
   if (((layout.flags[node] ?? 0) & LayoutFlag.laidOut) === 0) return;
   if (node === layout.rootNode) return;
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  const isOpenFolder = tree.kinds[node] === NodeKind.directory && ((layout.flags[node] ?? 0) & LayoutFlag.open) !== 0;
+  if (isOpenFolder) {
+    drawFolderHighlight(context, scene, chainTop(tree, layout, node));
+  } else {
+    drawTileHighlight(context, scene, node);
+  }
+}
+
+function drawTileHighlight(context: CanvasRenderingContext2D, scene: Scene, node: number): void {
+  const { layout, palette } = scene;
   const offset = node * 4;
   context.strokeStyle = palette.hoverOutline;
   context.lineWidth = 2;
@@ -280,4 +294,24 @@ export function drawHighlight(
     Math.max(0, (layout.rects[offset + 2] ?? 0) - 2),
     Math.max(0, (layout.rects[offset + 3] ?? 0) - 2),
   );
+}
+
+/** A 1px line over the frame's own border: a 2px one would cut into the tiles the 1px padding leaves room for. */
+function drawFolderHighlight(context: CanvasRenderingContext2D, scene: Scene, top: number): void {
+  const { layout, palette } = scene;
+  assert(((layout.flags[top] ?? 0) & LayoutFlag.chained) === 0, "a chain is drawn by its top");
+  const offset = top * 4;
+  const x = layout.rects[offset] ?? 0;
+  const y = layout.rects[offset + 1] ?? 0;
+  const width = layout.rects[offset + 2] ?? 0;
+  const height = layout.rects[offset + 3] ?? 0;
+  if (((layout.flags[top] ?? 0) & LayoutFlag.header) !== 0) {
+    // Covers the quiet label underneath, so the bright one is not blended with it.
+    context.fillStyle = palette.frame;
+    context.fillRect(x + 1, y + LAYOUT.padding, Math.max(0, width - 2), LAYOUT.headerHeight);
+    drawFrameHeader(context, scene, top, palette.frameTextHover);
+  }
+  context.strokeStyle = palette.hoverOutline;
+  context.lineWidth = 1;
+  context.strokeRect(x + 0.5, y + 0.5, Math.max(0, width - 1), Math.max(0, height - 1));
 }

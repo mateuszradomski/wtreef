@@ -181,6 +181,27 @@ test("single-child folder chains share one header", () => {
   assert.ok(chains > 0, "the l2beat PR has single-child folder chains in Churn mode");
 });
 
+test("an open headed frame starts its tiles right under a 12px header and 1px padding", () => {
+  const { tree, index, layout } = layoutFixture(REAL_FIXTURE, 1280, 800, SizeMode.churn);
+  assert.equal(LAYOUT.headerHeight, 12);
+  assert.equal(LAYOUT.padding, 1);
+  let headed = 0;
+  for (let node = 0; node < tree.nodeCount; node++) {
+    const flags = layout.flags[node] ?? 0;
+    if ((flags & LayoutFlag.header) === 0 || (flags & LayoutFlag.open) === 0) continue;
+    headed++;
+    const frame = rectOf(layout, node);
+    let topmost = Number.POSITIVE_INFINITY;
+    for (let cursor = index.childStart[node]!; cursor < index.childStart[node + 1]!; cursor++) {
+      const child = index.childIndices[cursor]!;
+      if (((layout.flags[child] ?? 0) & LayoutFlag.laidOut) !== 0) topmost = Math.min(topmost, rectOf(layout, child).y);
+    }
+    // Squarify fills the content box from its top edge, so some child always touches it.
+    assert.equal(topmost, frame.y + LAYOUT.padding + LAYOUT.headerHeight, `frame ${node}`);
+  }
+  assert.ok(headed > 0, "the l2beat PR has headed folders at this size");
+});
+
 test("layout is deterministic", () => {
   const first = layoutFixture(REAL_FIXTURE, 1280, 720);
   const second = layoutFixture(REAL_FIXTURE, 1280, 720);

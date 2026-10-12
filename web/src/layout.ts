@@ -9,8 +9,10 @@ import { NodeKind, type Tree } from "./decode.ts";
 import type { TreeIndex } from "./model.ts";
 
 export const LAYOUT = {
-  headerHeight: 16,
-  padding: 2,
+  // Every nesting level pays padding + header, and real PRs nest eight deep;
+  // 13px a level keeps deep chains from eating the map.
+  headerHeight: 12,
+  padding: 1,
   gap: 1,
   /** Frames smaller than this get no header strip, so labels never clip. */
   headerWidthMin: 48,

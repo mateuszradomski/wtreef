@@ -254,7 +254,7 @@ function runFrame(view: View): void {
   }
   if (state.overlayDirty) {
     const outlined = nearestLaidOutAncestor(state, state.hoveredNode);
-    drawHighlight(view.map.overlayContext, state.layout, state.palette, outlined, state.pixelRatio);
+    drawHighlight(view.map.overlayContext, sceneOf(state), outlined, state.pixelRatio);
     state.overlayDirty = false;
   }
   runDomUpdates(view);
