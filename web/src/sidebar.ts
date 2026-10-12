@@ -16,6 +16,7 @@ import {
   FileView,
   isFolderRow,
   NO_ROW,
+  rowForHoveredNode,
   rowLabel,
 } from "./file-tree.ts";
 import { formatAdditions, formatCount, formatDeletions, plural } from "./format.ts";
@@ -61,7 +62,7 @@ export interface Sidebar {
   readonly treeRows: HTMLElement[];
   /** The view the rows were last rendered for. */
   fileView: FileView;
-  highlightedNode: number;
+  highlightedRow: HTMLElement | null;
 }
 
 export interface ChangedFilesInput {
@@ -111,30 +112,35 @@ export function createSidebar(filter: FilterSection, tree: Tree, index: TreeInde
     rowByNode: new Map(),
     treeRows: [],
     fileView: FileView.tree,
-    highlightedNode: NO_NODE,
+    highlightedRow: null,
   };
-  attachListEvents(list, callbacks);
+  attachHoverEvents(list, ".file-row", callbacks);
+  attachHoverEvents(treeView, ".tree-row", callbacks);
   attachTreeEvents(sidebar, callbacks);
   return sidebar;
 }
 
-/** Delegated listeners: one set for the whole list instead of one per row. */
-function attachListEvents(list: HTMLElement, callbacks: SidebarCallbacks): void {
+/**
+ * Delegated listeners: one set per container instead of one per row. A row
+ * names its node: a file, or the last folder of a tree row's chain, whose
+ * frame the map outlines.
+ */
+function attachHoverEvents(container: HTMLElement, rowSelector: string, callbacks: SidebarCallbacks): void {
   const rowNode = (target: EventTarget | null): number => {
     if (!(target instanceof Element)) return NO_NODE;
-    const row = target.closest<HTMLElement>(".file-row");
+    const row = target.closest<HTMLElement>(rowSelector);
     return row === null ? NO_NODE : Number(row.dataset["node"] ?? NO_NODE);
   };
-  list.addEventListener("mouseover", (event) => {
+  container.addEventListener("mouseover", (event) => {
     const node = rowNode(event.target);
     if (node !== NO_NODE) callbacks.onHoverRow(node);
   });
-  list.addEventListener("mouseleave", callbacks.onLeaveRows);
-  list.addEventListener("focusin", (event) => {
+  container.addEventListener("mouseleave", callbacks.onLeaveRows);
+  container.addEventListener("focusin", (event) => {
     const node = rowNode(event.target);
     if (node !== NO_NODE) callbacks.onHoverRow(node);
   });
-  list.addEventListener("focusout", callbacks.onLeaveRows);
+  container.addEventListener("focusout", callbacks.onLeaveRows);
 }
 
 function attachTreeEvents(sidebar: Sidebar, callbacks: SidebarCallbacks): void {
@@ -168,7 +174,7 @@ export function syncFileViewChoice(sidebar: Sidebar, fileView: FileView): void {
 /** Rebuilds the rows of the chosen view; the other view's container is emptied and hidden. */
 export function renderChangedFiles(sidebar: Sidebar, input: ChangedFilesInput): void {
   sidebar.fileView = input.fileView;
-  sidebar.highlightedNode = NO_NODE;
+  sidebar.highlightedRow = null;
   sidebar.rowByNode.clear();
   sidebar.treeRows.length = 0;
   sidebar.list.hidden = input.fileView !== FileView.list;
@@ -352,14 +358,26 @@ function createTreeFileRow(input: ChangedFilesInput, fileTree: FileTree, index: 
   return row;
 }
 
-/** Marks the list row for `node` (or none). `reveal` scrolls it into view, for hovers that start on the map. */
+/**
+ * Marks the row for `node` (or none). In the tree, a node inside a closed
+ * folder marks that folder's row; nothing opens on hover. `reveal` scrolls
+ * the list to the row, for hovers that start on the map. The tree never
+ * scrolls: it is in path order, so following the pointer across the map
+ * would jump it back and forth.
+ */
 export function highlightRow(sidebar: Sidebar, node: number, reveal: boolean): void {
-  if (sidebar.fileView !== FileView.list) return;
-  if (sidebar.highlightedNode === node) return;
-  sidebar.rowByNode.get(sidebar.highlightedNode)?.classList.remove("is-highlighted");
-  sidebar.highlightedNode = node;
-  const row = sidebar.rowByNode.get(node);
-  if (row === undefined) return;
+  const row = sidebar.fileView === FileView.tree ? treeRowForNode(sidebar, node) : (sidebar.rowByNode.get(node) ?? null);
+  if (row === sidebar.highlightedRow) return;
+  sidebar.highlightedRow?.classList.remove("is-highlighted");
+  sidebar.highlightedRow = row;
+  if (row === null) return;
   row.classList.add("is-highlighted");
-  if (reveal) row.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });
+  if (reveal && sidebar.fileView === FileView.list) row.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });
+}
+
+/** Null for nodes the tree does not list, and for rows past the rendering bound. */
+function treeRowForNode(sidebar: Sidebar, node: number): HTMLElement | null {
+  const row = rowForHoveredNode(sidebar.tree, sidebar.fileTree, node);
+  if (row === NO_ROW) return null;
+  return sidebar.treeRows[row] ?? null;
 }

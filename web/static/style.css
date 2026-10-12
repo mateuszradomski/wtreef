@@ -1026,7 +1026,8 @@ input {
 }
 
 /* background-color only: the shorthand would drop the guides. */
-.tree-row:hover {
+.tree-row:hover,
+.tree-row.is-highlighted {
   background-color: var(--surface-2);
 }
 
