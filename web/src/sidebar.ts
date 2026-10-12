@@ -24,8 +24,10 @@ import {
   TreeKeyKind,
 } from "./file-tree.ts";
 import { formatAdditions, formatCount, formatDeletions, plural } from "./format.ts";
+import { createIcon, IconKind } from "./icons.ts";
 import { attachLongPress, isLongPressClick, longPressOpenedMenu } from "./long-press.ts";
 import type { TreeIndex } from "./model.ts";
+import { HIDE_KEY } from "./node-actions.ts";
 import { createSegmented, type Segmented, type SegmentedOption, syncSegmented } from "./segmented.ts";
 import { statusClassName, statusLabel, statusLetter, statusOf } from "./status.ts";
 import { createLegend } from "./ui.ts";
@@ -52,7 +54,7 @@ export interface SidebarCallbacks {
   readonly onFolderExpanded: (chainTop: number, chainEnd: number, expanded: boolean) => void;
   /** Right-click, long press or the context menu key on a row. */
   readonly onRowMenu: (node: number, opening: MenuOpening) => void;
-  /** Alt-click on a row. */
+  /** Alt-click on a row, or its hide control. */
   readonly onHideRow: (node: number) => void;
 }
 
@@ -167,10 +169,10 @@ function attachHoverEvents(container: HTMLElement, callbacks: SidebarCallbacks):
 
 /**
  * The secondary actions on a row: right-click, a long press or the context
- * menu key open the menu, and Alt-click hides. Clicks are caught on the way
- * down, so neither an Alt-click nor the click ending a long press reaches
- * the row: it would follow the link (some browsers download a link on
- * Alt-click) or open the folder.
+ * menu key open the menu, and Alt-click or the hide control hide it. Clicks
+ * are caught on the way down, so none of these reaches the row: it would
+ * follow the link (some browsers download a link on Alt-click) or open the
+ * folder.
  */
 function attachRowActionEvents(container: HTMLElement, callbacks: SidebarCallbacks): void {
   const press = attachLongPress(container, (point) => {
@@ -191,7 +193,8 @@ function attachRowActionEvents(container: HTMLElement, callbacks: SidebarCallbac
       const node = rowNodeOf(event.target);
       if (node === NO_NODE) return;
       const endsLongPress = isLongPressClick(press);
-      if (!endsLongPress && !event.altKey) return;
+      const onHideControl = event.target instanceof Element && event.target.closest(".row-hide") !== null;
+      if (!endsLongPress && !event.altKey && !onHideControl) return;
       event.preventDefault();
       event.stopPropagation();
       if (!endsLongPress) callbacks.onHideRow(node);
@@ -359,7 +362,8 @@ function createListRow(node: number, input: ChangedFilesInput): HTMLAnchorElemen
   const additions = tree.additions[node] ?? 0;
   const deletions = tree.deletions[node] ?? 0;
   row.setAttribute("aria-label", `${statusLabel(status)} ${path}, ${additions} added, ${deletions} deleted. Opens the diff on GitHub.`);
-  append(row, createStatusLetter(tree, node), pathElement, ...createLineCounts(additions, deletions), createChurnBar(additions, deletions, index.churnMax));
+  const counts = createLineCounts(additions, deletions);
+  append(row, createStatusLetter(tree, node), pathElement, createHideControl(tree.names[node] ?? ""), ...counts, createChurnBar(additions, deletions, index.churnMax));
   return row;
 }
 
@@ -466,7 +470,7 @@ function createFolderRow(input: ChangedFilesInput, fileTree: FileTree, index: nu
   const count = element("span", "tree-count", formatCount(fileTree.visibleFiles[node] ?? 0));
   count.title = files;
   row.setAttribute("aria-label", `${label}, ${files}, ${additions} added, ${deletions} deleted`);
-  append(row, append(element("span", "tree-label"), chevron, name, count), ...createLineCounts(additions, deletions));
+  append(row, append(element("span", "tree-label"), chevron, name, count), createHideControl(label), ...createLineCounts(additions, deletions));
   return row;
 }
 
@@ -491,8 +495,25 @@ function createTreeFileRow(input: ChangedFilesInput, fileTree: FileTree, index: 
   const status = statusLabel(statusOf(tree.statuses[node] ?? 0));
   row.setAttribute("aria-label", `${status} ${tree.names[node] ?? ""}, ${additions} added, ${deletions} deleted. Opens the diff on GitHub.`);
   const label = append(element("span", "tree-label"), createStatusLetter(tree, node), name);
-  append(row, label, ...createLineCounts(additions, deletions), createChurnBar(additions, deletions, input.index.churnMax));
+  const counts = createLineCounts(additions, deletions);
+  append(row, label, createHideControl(tree.names[node] ?? ""), ...counts, createChurnBar(additions, deletions, input.index.churnMax));
   return row;
+}
+
+/**
+ * Shown over the end of the name on hover and keyboard focus. It is not a
+ * Tab stop, so the tree keeps its one (as the WAI-ARIA tree pattern asks of
+ * secondary actions): from the keyboard, H and the context menu key do the
+ * same. It is no <button> either, since links cannot contain one; clicks
+ * reach it through attachRowActionEvents.
+ */
+function createHideControl(name: string): HTMLElement {
+  const control = element("span", "row-hide");
+  control.setAttribute("role", "button");
+  control.setAttribute("aria-label", `Hide ${name}`);
+  control.setAttribute("aria-keyshortcuts", HIDE_KEY);
+  control.append(createIcon(IconKind.hide));
+  return control;
 }
 
 /**

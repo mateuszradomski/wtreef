@@ -22,6 +22,7 @@ import {
   isHideableNode,
   isInsideHiddenSubtree,
   nearestShownAncestor,
+  NO_HIDDEN_NODES,
   withNodeHidden,
   withNodeShown,
 } from "./hidden.ts";
@@ -138,7 +139,7 @@ export function mountPullRequestView(root: HTMLElement, data: PullRequestData, s
     return view;
   };
   const controls = createControls(controlsCallbacks(getView));
-  const filterSection = createFilterSection(state.index, filterCallbacks(getView), !window.matchMedia(NARROW_LAYOUT_QUERY).matches);
+  const filterSection = createFilterSection(state.tree, state.index, filterCallbacks(getView), !window.matchMedia(NARROW_LAYOUT_QUERY).matches);
   const sidebar = createSidebar(filterSection, state.tree, state.index, sidebarCallbacks(getView));
   const toast = createToast();
   view = { state, header: createHeader(data), map, controls, sidebar, tooltip: createTooltip(), menu: createContextMenu(), toast };
@@ -193,6 +194,8 @@ function filterCallbacks(getView: () => View): FilterSectionCallbacks {
     onToggleType: (key) => update((filters) => ({ ...filters, hiddenTypes: toggledSet(filters.hiddenTypes, key) })),
     onToggleUnchanged: () => update((filters) => ({ ...filters, showUnchanged: !filters.showUnchanged })),
     onToggleGenerated: () => update((filters) => ({ ...filters, showGenerated: !filters.showGenerated })),
+    onShowHidden: (node) => showNode(getView(), node),
+    onShowAllHidden: () => update((filters) => ({ ...filters, hiddenNodes: NO_HIDDEN_NODES })),
     onReset: () => update(withDefaultCategoryFilters),
   };
 }
@@ -602,7 +605,7 @@ function hideNode(view: View, node: number): void {
 
 function showNode(view: View, node: number): void {
   const { state } = view;
-  // Reset or the Hidden list may have shown it again already.
+  // Undo can come after Reset or the Hidden list already showed it again.
   if (!state.filters.hiddenNodes.has(node)) return;
   applyFilters(view, { ...state.filters, hiddenNodes: withNodeShown(state.filters.hiddenNodes, node) });
 }

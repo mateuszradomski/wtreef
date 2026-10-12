@@ -850,6 +850,74 @@ input {
   font-family: var(--font-sans);
 }
 
+/* The Hidden group: paths in the list's mono, each with an eye to show it again; Show all sits in the heading. */
+.hidden-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.hidden-show-all {
+  padding: 0;
+  font-size: var(--text-meta);
+}
+
+/* Up to 200 entries can be hidden; past about seven the list scrolls instead of pushing the files down. */
+.hidden-list {
+  max-height: 182px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+.hidden-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 2px 0 8px;
+  border-radius: var(--radius-small);
+  font-size: var(--text-control);
+}
+
+.hidden-row:hover {
+  background: var(--surface-2);
+}
+
+/* fg-3 is 4.46:1 on the light hover fill, so the folders step up to fg-2 on a hovered row. */
+.hidden-row:hover .file-directory {
+  color: var(--fg-2);
+}
+
+.hidden-path {
+  flex: 1 1 auto;
+}
+
+.hidden-restore {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: none;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+
+.hidden-restore:hover {
+  color: var(--fg);
+}
+
+.hidden-restore:focus-visible {
+  outline-offset: -2px;
+}
+
 .files-section {
   flex: 1 1 auto;
   display: flex;
@@ -916,6 +984,24 @@ input {
 .file-row:hover,
 .file-row.is-highlighted {
   background: var(--surface-2);
+}
+
+/* Placed, not flowed: the hide control shares the path's cell, so showing it moves nothing. */
+.file-row > .file-status {
+  grid-area: 1 / 1;
+}
+
+.file-row > .file-path,
+.file-row > .row-hide {
+  grid-area: 1 / 2;
+}
+
+.file-row > .file-additions {
+  grid-area: 1 / 3;
+}
+
+.file-row > .file-deletions {
+  grid-area: 1 / 4;
 }
 
 .file-status {
@@ -1156,6 +1242,63 @@ input {
 .tree-row .file-deletions {
   min-width: var(--tree-deletions-width, auto);
   text-align: right;
+}
+
+.tree-row > .tree-label,
+.tree-row > .row-hide {
+  grid-area: 1 / 1;
+}
+
+.tree-row > .file-additions {
+  grid-area: 1 / 2;
+}
+
+.tree-row > .file-deletions {
+  grid-area: 1 / 3;
+}
+
+/*
+ * The hide control: an eye with a slash over the end of the name, shown on
+ * hover and keyboard focus. It overlaps the name rather than taking a
+ * column, so nothing shifts and the number columns stay aligned; its fill
+ * fades in over the text it covers. The negative margin keeps its 20px
+ * from growing the 17px line.
+ */
+.row-hide {
+  display: none;
+  align-self: center;
+  justify-self: end;
+  align-items: center;
+  justify-content: flex-end;
+  width: 32px;
+  height: 20px;
+  margin: -2px -2px -2px 0;
+  padding: 0 2px 0 12px;
+  border-radius: var(--radius-small);
+  background: linear-gradient(90deg, transparent, var(--surface-2) 12px);
+  color: var(--fg-2);
+  cursor: pointer;
+}
+
+.row-hide:hover {
+  color: var(--fg);
+}
+
+.row-hide svg {
+  display: block;
+}
+
+/* Touch has no hover, and a tap would leave it showing; a long press opens the menu instead. */
+@media (hover: hover) {
+  .file-row:hover .row-hide,
+  .tree-row:hover .row-hide {
+    display: flex;
+  }
+}
+
+.file-row:focus-visible .row-hide,
+.tree-row:focus-visible .row-hide {
+  display: flex;
 }
 
 .file-list-footer {
