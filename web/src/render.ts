@@ -98,8 +98,6 @@ export interface Scene {
   readonly layout: Layout;
   readonly styles: TileStyles;
   readonly palette: ChartPalette;
-  readonly searchMatches: Uint8Array;
-  readonly searchActive: boolean;
 }
 
 const LABEL = {
@@ -114,40 +112,27 @@ const LABEL = {
 } as const;
 const HEADER_BASELINE_Y = 12;
 const HATCH_SPACING_PX = 6;
-/**
- * Non-matching tiles keep their shape but fade toward the frame and lose
- * their labels (faded text stays half-legible depending on its ink, which
- * reads as noise). Folder names stay readable so the structure remains.
- */
-const SEARCH_DIM_ALPHA = 0.2;
-const SEARCH_DIM_HEADER_ALPHA = 0.5;
 
 export function drawBase(context: CanvasRenderingContext2D, scene: Scene, pixelRatio: number): void {
   const { layout, tree } = scene;
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-  context.globalAlpha = 1;
   context.fillStyle = scene.palette.canvas;
   context.fillRect(0, 0, layout.width, layout.height);
   context.textBaseline = "alphabetic";
   for (let order = 0; order < layout.drawCount; order++) {
     const node = layout.drawOrder[order] ?? 0;
     if (node === layout.rootNode) continue;
-    const dimmed = scene.searchActive && scene.searchMatches[node] === 0;
     const flags = layout.flags[node] ?? 0;
-    context.globalAlpha = dimmed ? SEARCH_DIM_ALPHA : 1;
     if (tree.kinds[node] === NodeKind.directory && (flags & LayoutFlag.open) !== 0) {
       // A chained folder has no frame of its own: its chain top drew it.
       if ((flags & LayoutFlag.chained) !== 0) continue;
       drawFrame(context, scene, node);
-      if ((flags & LayoutFlag.header) === 0) continue;
-      context.globalAlpha = dimmed ? SEARCH_DIM_HEADER_ALPHA : 1;
-      drawFrameHeader(context, scene, node);
+      if ((flags & LayoutFlag.header) !== 0) drawFrameHeader(context, scene, node);
     } else {
       drawTile(context, scene, node);
-      if (!dimmed) drawTileLabel(context, scene, node);
+      drawTileLabel(context, scene, node);
     }
   }
-  context.globalAlpha = 1;
 }
 
 function drawFrame(context: CanvasRenderingContext2D, scene: Scene, node: number): void {

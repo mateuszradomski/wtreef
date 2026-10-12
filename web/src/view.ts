@@ -11,15 +11,16 @@ import { hitTest, isDirectoryFrameHit, NO_NODE } from "./hit.ts";
 import { chainEnd, chainTop, computeLayout, createLayout, type Layout, LayoutFlag } from "./layout.ts";
 import {
   buildTreeIndex,
-  computeSearchMatches,
   computeSubtreeMembership,
   computeWeights,
   DEFAULT_FILTERS,
   type Filters,
+  filtersEqual,
   findDirectoryByPath,
   isChangedFile,
   type TreeIndex,
 } from "./model.ts";
+import { parsePathPattern } from "./pattern.ts";
 import { parseViewQuery, serializeViewQuery } from "./query.ts";
 import { type ChartPalette, computeTileStyles, drawBase, drawHighlight, readChartPalette, type TileStyles } from "./render.ts";
 import { createSidebar, highlightRow, renderFileList, type Sidebar } from "./sidebar.ts";
@@ -39,7 +40,6 @@ export interface ViewState {
   filters: Filters;
   zoomNode: number;
   readonly weights: Float64Array;
-  readonly searchMatches: Uint8Array;
   readonly insideZoom: Uint8Array;
   readonly layout: Layout;
   palette: ChartPalette;
@@ -57,7 +57,6 @@ export interface ViewState {
   hoveredNode: number;
   hoverSource: HoverSource;
   weightsDirty: boolean;
-  searchDirty: boolean;
   layoutDirty: boolean;
   baseDirty: boolean;
   pointerDirty: boolean;
@@ -143,7 +142,8 @@ function toolbarCallbacks(getView: () => View): ToolbarCallbacks {
     onToggleType: (key) => update((filters) => ({ ...filters, hiddenTypes: toggledSet(filters.hiddenTypes, key) })),
     onToggleUnchanged: () => update((filters) => ({ ...filters, showUnchanged: !filters.showUnchanged })),
     onToggleGenerated: () => update((filters) => ({ ...filters, showGenerated: !filters.showGenerated })),
-    onSearch: (text) => update((filters) => ({ ...filters, search: text })),
+    onInclude: (text) => update((filters) => ({ ...filters, include: parsePathPattern(text) })),
+    onExclude: (text) => update((filters) => ({ ...filters, exclude: parsePathPattern(text) })),
     onReset: () => update((filters) => ({ ...DEFAULT_FILTERS, sizeMode: filters.sizeMode })),
   };
 }
@@ -172,7 +172,6 @@ function createState(data: PullRequestData, search: string): ViewState {
     filters: query.filters,
     zoomNode,
     weights: new Float64Array(tree.nodeCount),
-    searchMatches: new Uint8Array(tree.nodeCount),
     insideZoom: new Uint8Array(tree.nodeCount),
     layout: createLayout(tree.nodeCount),
     palette,
@@ -188,7 +187,6 @@ function createState(data: PullRequestData, search: string): ViewState {
     hoveredNode: NO_NODE,
     hoverSource: HoverSource.none,
     weightsDirty: true,
-    searchDirty: true,
     layoutDirty: true,
     baseDirty: true,
     pointerDirty: false,
@@ -238,12 +236,6 @@ function runFrame(view: View): void {
     computeSubtreeMembership(state.tree, state.zoomNode, state.insideZoom);
     state.weightsDirty = false;
     state.layoutDirty = true;
-    state.listDirty = true;
-  }
-  if (state.searchDirty) {
-    computeSearchMatches(state.tree, state.index, state.filters.search, state.searchMatches);
-    state.searchDirty = false;
-    state.baseDirty = true;
     state.listDirty = true;
   }
   if (state.layoutDirty) {
@@ -297,8 +289,6 @@ function fileListInput(state: ViewState) {
     tree: state.tree,
     index: state.index,
     weights: state.weights,
-    searchMatches: state.searchMatches,
-    searchActive: state.filters.search.trim() !== "",
     insideZoom: state.insideZoom,
     diffUrls: state.diffUrls,
     fallbackUrl: filesTabUrl(state.data.pullRequest),
@@ -323,8 +313,6 @@ function sceneOf(state: ViewState) {
     layout: state.layout,
     styles: state.styles,
     palette: state.palette,
-    searchMatches: state.searchMatches,
-    searchActive: state.filters.search.trim() !== "",
   };
 }
 
@@ -391,27 +379,15 @@ function isClickable(state: ViewState, node: number): boolean {
   return isDirectoryFrameHit(state.tree, state.layout, node);
 }
 
-/** Single entry point for filter changes: decides how much of the pipeline must rerun. */
+/** Single entry point for filter changes: every filter feeds the weights, so any change reruns them. */
 function applyFilters(view: View, next: Filters): void {
   const { state } = view;
-  const previous = state.filters;
+  if (filtersEqual(state.filters, next)) return;
   state.filters = next;
-  const onlySearchChanged = { ...previous, search: next.search };
-  if (next.search !== previous.search) state.searchDirty = true;
-  if (!shallowFiltersEqual(onlySearchChanged, next)) state.weightsDirty = true;
+  state.weightsDirty = true;
   state.controlsDirty = true;
   state.urlDirty = true;
   requestFrame(view);
-}
-
-function shallowFiltersEqual(a: Filters, b: Filters): boolean {
-  return (
-    a.sizeMode === b.sizeMode &&
-    a.hiddenStatuses === b.hiddenStatuses &&
-    a.hiddenTypes === b.hiddenTypes &&
-    a.showUnchanged === b.showUnchanged &&
-    a.showGenerated === b.showGenerated
-  );
 }
 
 function attachMapEvents(view: View): void {
@@ -489,8 +465,8 @@ function attachWindowEvents(view: View): void {
       zoomOut(view);
     } else if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
-      view.toolbar.search.focus();
-      view.toolbar.search.select();
+      view.toolbar.include.input.focus();
+      view.toolbar.include.input.select();
     }
   });
   const colorScheme = window.matchMedia("(prefers-color-scheme: light)");

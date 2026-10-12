@@ -1,5 +1,5 @@
-// The filter row: size mode, status / type chips, context toggles, search
-// and reset. Built once per PR; syncToolbar mirrors the filters into it.
+// The filter row: size mode, status / type chips, context toggles, path
+// patterns and reset. Built once per PR; syncToolbar mirrors the filters into it.
 // The toolbar never owns state: every interaction goes through a callback
 // that the controller turns into a new Filters value.
 
@@ -7,6 +7,7 @@ import type { FileStatus } from "./decode.ts";
 import { append, button, element } from "./dom.ts";
 import { formatCount } from "./format.ts";
 import { type Filters, hasActiveFilters, SizeMode, TYPE_KEY_NONE, TYPE_KEY_OTHER, type TreeIndex } from "./model.ts";
+import { createPatternField, type PatternField, syncPatternField } from "./pattern-field.ts";
 import { CHANGED_STATUSES, statusClassName, statusLabel } from "./status.ts";
 
 export interface ToolbarCallbacks {
@@ -15,7 +16,8 @@ export interface ToolbarCallbacks {
   readonly onToggleType: (key: string) => void;
   readonly onToggleUnchanged: () => void;
   readonly onToggleGenerated: () => void;
-  readonly onSearch: (text: string) => void;
+  readonly onInclude: (text: string) => void;
+  readonly onExclude: (text: string) => void;
   readonly onReset: () => void;
 }
 
@@ -26,7 +28,8 @@ export interface Toolbar {
   readonly typeChips: ReadonlyMap<string, HTMLButtonElement>;
   readonly unchangedChip: HTMLButtonElement;
   readonly generatedChip: HTMLButtonElement | null;
-  readonly search: HTMLInputElement;
+  readonly include: PatternField;
+  readonly exclude: PatternField;
   readonly reset: HTMLButtonElement;
 }
 
@@ -49,12 +52,18 @@ export function createToolbar(index: TreeIndex, callbacks: ToolbarCallbacks): To
   const statusChips = createStatusGroup(root, index, callbacks);
   const typeChips = createTypeGroup(root, index, callbacks);
   const { unchangedChip, generatedChip } = createShowGroup(root, index, callbacks);
-  const { wrapper, search } = createSearch(callbacks);
+  const include = createPatternField({
+    name: "include",
+    label: "Include",
+    placeholder: "src/.*\\.tsx?$",
+    onCommit: callbacks.onInclude,
+  });
+  const exclude = createPatternField({ name: "exclude", label: "Exclude", placeholder: "test|\\.snap$", onCommit: callbacks.onExclude });
   const reset = button("text-button reset", "Reset");
-  reset.title = "Show every file again and clear the search";
+  reset.title = "Show every file again and clear the path patterns";
   reset.addEventListener("click", callbacks.onReset);
-  root.append(append(element("div", "toolbar-end"), wrapper, reset));
-  return { root, sizeButtons, statusChips, typeChips, unchangedChip, generatedChip, search, reset };
+  root.append(append(element("div", "toolbar-end"), include.root, exclude.root, reset));
+  return { root, sizeButtons, statusChips, typeChips, unchangedChip, generatedChip, include, exclude, reset };
 }
 
 function createSizeModeGroup(root: HTMLElement, callbacks: ToolbarCallbacks): Map<SizeMode, HTMLButtonElement> {
@@ -139,24 +148,6 @@ function createChip(label: string, count: number, boxClassName: string): HTMLBut
   return chip;
 }
 
-function createSearch(callbacks: ToolbarCallbacks): { wrapper: HTMLElement; search: HTMLInputElement } {
-  const wrapper = element("label", "search");
-  const search = element("input", "search-input");
-  search.type = "search";
-  search.placeholder = "Filter paths";
-  search.spellcheck = false;
-  search.autocomplete = "off";
-  search.setAttribute("aria-label", "Filter paths");
-  search.addEventListener("input", () => callbacks.onSearch(search.value));
-  search.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" || event.key === "Enter") search.blur();
-  });
-  const hint = element("kbd", "search-hint", "/");
-  hint.setAttribute("aria-hidden", "true");
-  wrapper.append(search, hint);
-  return { wrapper, search };
-}
-
 function setPressed(chip: HTMLButtonElement, pressed: boolean): void {
   chip.setAttribute("aria-pressed", pressed ? "true" : "false");
 }
@@ -176,6 +167,7 @@ export function syncToolbar(toolbar: Toolbar, filters: Filters): void {
   setPressed(toolbar.unchangedChip, filters.showUnchanged);
   toolbar.unchangedChip.disabled = filters.sizeMode === SizeMode.churn;
   if (toolbar.generatedChip !== null) setPressed(toolbar.generatedChip, filters.showGenerated);
-  if (toolbar.search.value !== filters.search) toolbar.search.value = filters.search;
+  syncPatternField(toolbar.include, filters.include);
+  syncPatternField(toolbar.exclude, filters.exclude);
   toolbar.reset.hidden = !hasActiveFilters(filters);
 }

@@ -4,6 +4,7 @@
 
 import { assert } from "./assert.ts";
 import { FileStatus, NodeKind, type Tree } from "./decode.ts";
+import { activeRegex, EMPTY_PATH_PATTERN, type PathPattern, patternSource } from "./pattern.ts";
 
 /** Changed files with no head bytes (deleted, or missing from a truncated tree) are sized from their churn. */
 export const ESTIMATED_BYTES_PER_CHANGED_LINE = 40;
@@ -42,7 +43,6 @@ export interface TreeIndex {
   readonly depths: Uint32Array;
   /** Full path; "" for the root and for rest nodes, which have no path. */
   readonly paths: readonly string[];
-  readonly pathsLower: readonly string[];
   readonly generated: Uint8Array;
   /** Index into `typeBuckets` for changed files; TYPE_BUCKET_NONE otherwise. */
   readonly typeBucketOfNode: Uint8Array;
@@ -70,7 +70,10 @@ export interface Filters {
   readonly hiddenTypes: ReadonlySet<string>;
   readonly showUnchanged: boolean;
   readonly showGenerated: boolean;
-  readonly search: string;
+  /** Keeps only files whose path matches, when valid. */
+  readonly include: PathPattern;
+  /** Drops files whose path matches, when valid. */
+  readonly exclude: PathPattern;
 }
 
 export const DEFAULT_FILTERS: Filters = {
@@ -81,7 +84,8 @@ export const DEFAULT_FILTERS: Filters = {
   hiddenTypes: new Set(),
   showUnchanged: true,
   showGenerated: true,
-  search: "",
+  include: EMPTY_PATH_PATTERN,
+  exclude: EMPTY_PATH_PATTERN,
 };
 
 export function isChangedFile(tree: Tree, node: number): boolean {
@@ -95,7 +99,6 @@ export function churnOf(tree: Tree, node: number): number {
 export function buildTreeIndex(tree: Tree): TreeIndex {
   const { childStart, childIndices } = buildChildren(tree);
   const { paths, depths } = buildPaths(tree);
-  const pathsLower = paths.map((path) => path.toLowerCase());
   const generated = new Uint8Array(tree.nodeCount);
   for (let node = 1; node < tree.nodeCount; node++) {
     generated[node] = isGeneratedNode(tree, node, paths[node] ?? "") ? 1 : 0;
@@ -116,7 +119,6 @@ export function buildTreeIndex(tree: Tree): TreeIndex {
     childIndices,
     depths,
     paths,
-    pathsLower,
     generated,
     typeBucketOfNode,
     typeBuckets,
@@ -277,21 +279,25 @@ export function computeWeights(tree: Tree, index: TreeIndex, filters: Filters, w
   assert(weights.length === tree.nodeCount, "weights must have one slot per node");
   const typeMask = hiddenTypeMask(index, filters.hiddenTypes);
   const showContext = filters.showUnchanged && filters.sizeMode === SizeMode.context;
+  const include = activeRegex(filters.include);
+  const exclude = activeRegex(filters.exclude);
   for (let node = 0; node < tree.nodeCount; node++) {
-    const kind = tree.kinds[node];
-    if (kind === NodeKind.directory) {
-      weights[node] = 0;
-    } else if (isChangedFile(tree, node)) {
-      weights[node] = changedFileWeight(tree, index, node, filters, typeMask);
-    } else if (showContext && (filters.showGenerated || index.generated[node] === 0)) {
-      weights[node] = tree.bytes[node] ?? 0;
-    } else {
-      weights[node] = 0;
-    }
+    const weight = leafWeight(tree, index, node, filters, typeMask, showContext);
+    // Patterns run last and only on visible leaves: a regex test is the most expensive check here.
+    weights[node] = weight > 0 && !passesPathPatterns(tree, index, node, include, exclude) ? 0 : weight;
   }
   for (let node = tree.nodeCount - 1; node >= 1; node--) {
     weights[tree.parents[node] ?? 0]! += weights[node] ?? 0;
   }
+}
+
+/** Directories weigh nothing of their own; their weight is the sum computed afterwards. */
+function leafWeight(tree: Tree, index: TreeIndex, node: number, filters: Filters, typeMask: number, showContext: boolean): number {
+  if (tree.kinds[node] === NodeKind.directory) return 0;
+  if (isChangedFile(tree, node)) return changedFileWeight(tree, index, node, filters, typeMask);
+  if (!showContext) return 0;
+  if (!filters.showGenerated && index.generated[node] === 1) return 0;
+  return tree.bytes[node] ?? 0;
 }
 
 function changedFileWeight(tree: Tree, index: TreeIndex, node: number, filters: Filters, typeMask: number): number {
@@ -306,36 +312,24 @@ function changedFileWeight(tree: Tree, index: TreeIndex, node: number, filters: 
 }
 
 /**
- * Marks nodes whose path contains `search` (case-insensitive). Rest nodes
- * match when their directory does, since every file they stand for lives
- * under it. Directories match when any child does. Returns the number of
- * matching leaves; an empty search matches everything.
+ * Leaves match on their own path; their contents are unknown. Rest nodes
+ * have no path, so no include can name them and no exclude can remove them.
  */
-export function computeSearchMatches(tree: Tree, index: TreeIndex, search: string, matches: Uint8Array): number {
-  assert(matches.length === tree.nodeCount, "matches must have one slot per node");
-  const needle = search.trim().toLowerCase();
-  if (needle === "") {
-    matches.fill(1);
-    return tree.nodeCount;
-  }
-  matches.fill(0);
-  let leafMatches = 0;
-  for (let node = tree.nodeCount - 1; node >= 1; node--) {
-    const kind = tree.kinds[node];
-    if (kind !== NodeKind.directory) {
-      const ownPath = kind === NodeKind.rest ? restPathPrefix(index, tree.parents[node] ?? 0) : index.pathsLower[node];
-      if ((ownPath ?? "").includes(needle)) matches[node] = 1;
-      leafMatches += matches[node] ?? 0;
-    }
-    if (matches[node] === 1) matches[tree.parents[node] ?? 0] = 1;
-  }
-  return leafMatches;
+function passesPathPatterns(tree: Tree, index: TreeIndex, node: number, include: RegExp | null, exclude: RegExp | null): boolean {
+  const kind = tree.kinds[node];
+  assert(kind !== NodeKind.directory, "patterns apply to leaves; directories sum their children");
+  if (kind === NodeKind.rest) return include === null;
+  const subject = patternSubject(tree, index, node);
+  if (include !== null && !include.test(subject)) return false;
+  if (exclude !== null && exclude.test(subject)) return false;
+  return true;
 }
 
-/** The part of the path every file behind a rest node shares: its directory plus "/". */
-function restPathPrefix(index: TreeIndex, directory: number): string {
-  const directoryPath = index.pathsLower[directory] ?? "";
-  return directoryPath === "" ? "" : `${directoryPath}/`;
+/** The text a pattern is tested against: the full path, with a trailing "/" for collapsed folders, as tooltips show them. */
+function patternSubject(tree: Tree, index: TreeIndex, node: number): string {
+  const path = index.paths[node] ?? "";
+  assert(path !== "", "only the root and rest nodes have no path");
+  return tree.kinds[node] === NodeKind.collapsedDirectory ? `${path}/` : path;
 }
 
 /** Marks `zoomNode` and every node below it. Parents precede children, so one forward pass suffices. */
@@ -362,7 +356,8 @@ export function filtersEqual(a: Filters, b: Filters): boolean {
   if (a.hiddenStatuses !== b.hiddenStatuses) return false;
   if (a.showUnchanged !== b.showUnchanged) return false;
   if (a.showGenerated !== b.showGenerated) return false;
-  if (a.search !== b.search) return false;
+  if (patternSource(a.include) !== patternSource(b.include)) return false;
+  if (patternSource(a.exclude) !== patternSource(b.exclude)) return false;
   if (a.hiddenTypes.size !== b.hiddenTypes.size) return false;
   for (const key of a.hiddenTypes) {
     if (!b.hiddenTypes.has(key)) return false;

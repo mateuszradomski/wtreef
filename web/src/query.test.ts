@@ -6,6 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FileStatus } from "./decode.ts";
 import { DEFAULT_FILTERS, filtersEqual, SizeMode } from "./model.ts";
+import { PATH_PATTERN_LENGTH_MAX, parsePathPattern } from "./pattern.ts";
 import { parseViewQuery, serializeViewQuery } from "./query.ts";
 
 const KNOWN_TYPES: ReadonlySet<string> = new Set(["ts", "md", "(other)"]);
@@ -25,12 +26,13 @@ test("round-trips every non-default value", () => {
       hiddenTypes: new Set(["md", "(other)"]),
       showUnchanged: false,
       showGenerated: false,
-      search: "Front End/ä",
+      include: parsePathPattern("src/.*\\.tsx?$"),
+      exclude: parsePathPattern("test|a+b c/ä,"),
     },
     zoomPath: "packages/frontend",
   };
   const text = serializeViewQuery(query);
-  assert.match(text, /^\?size=context&hide=deleted,renamed&hideType=%28other%29,md&unchanged=0&generated=0&q=/);
+  assert.match(text, /^\?size=context&hide=deleted,renamed&hideType=%28other%29,md&unchanged=0&generated=0&include=src\//);
   assert.match(text, /zoom=packages\/frontend$/);
   const parsed = parseViewQuery(text, KNOWN_TYPES);
   assert.ok(filtersEqual(parsed.filters, query.filters));
@@ -44,4 +46,18 @@ test("ignores unknown and invalid values", () => {
   assert.deepEqual([...parsed.filters.hiddenTypes], ["ts"]);
   assert.equal(parsed.filters.showUnchanged, true);
   assert.equal(parsed.zoomPath, "a/b");
+});
+
+test("path patterns survive the URL: invalid ones with their text, over-long ones not at all", () => {
+  const invalid = parseViewQuery("?include=(&exclude=b", KNOWN_TYPES);
+  assert.equal(invalid.filters.include.kind, "invalid");
+  assert.equal(invalid.filters.exclude.kind, "valid");
+  assert.equal(serializeViewQuery({ filters: invalid.filters, zoomPath: "" }), "?include=%28&exclude=b");
+  const overLong = parseViewQuery(`?include=${"a".repeat(PATH_PATTERN_LENGTH_MAX + 1)}`, KNOWN_TYPES);
+  assert.equal(overLong.filters.include.kind, "empty");
+});
+
+test("the old substring search parameter is ignored", () => {
+  const parsed = parseViewQuery("?q=frontend", KNOWN_TYPES);
+  assert.ok(filtersEqual(parsed.filters, DEFAULT_FILTERS));
 });

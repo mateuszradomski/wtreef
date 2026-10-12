@@ -6,6 +6,7 @@
 import { assert } from "./assert.ts";
 import { FileStatus } from "./decode.ts";
 import { DEFAULT_FILTERS, type Filters, SizeMode } from "./model.ts";
+import { EMPTY_PATH_PATTERN, PATH_PATTERN_LENGTH_MAX, type PathPattern, parsePathPattern, patternSource } from "./pattern.ts";
 
 export interface ViewQuery {
   readonly filters: Filters;
@@ -19,12 +20,12 @@ const PARAMETER = {
   hiddenTypes: "hideType",
   unchanged: "unchanged",
   generated: "generated",
-  search: "q",
+  include: "include",
+  exclude: "exclude",
   zoom: "zoom",
 } as const;
 
 const LIST_SEPARATOR = ",";
-const SEARCH_LENGTH_MAX = 200;
 const ZOOM_PATH_LENGTH_MAX = 4096;
 const LIST_ITEMS_MAX = 64;
 
@@ -43,7 +44,8 @@ export function parseViewQuery(search: string, knownTypeKeys: ReadonlySet<string
     hiddenTypes: parseHiddenTypes(parameters.get(PARAMETER.hiddenTypes), knownTypeKeys),
     showUnchanged: parameters.get(PARAMETER.unchanged) !== "0",
     showGenerated: parameters.get(PARAMETER.generated) !== "0",
-    search: (parameters.get(PARAMETER.search) ?? "").slice(0, SEARCH_LENGTH_MAX),
+    include: parsePatternParameter(parameters.get(PARAMETER.include)),
+    exclude: parsePatternParameter(parameters.get(PARAMETER.exclude)),
   };
   return { filters, zoomPath: parseZoomPath(parameters.get(PARAMETER.zoom)) };
 }
@@ -76,6 +78,17 @@ function parseHiddenTypes(value: string | null, knownTypeKeys: ReadonlySet<strin
   return hidden;
 }
 
+/**
+ * An invalid pattern is kept, so the input shows what the link said along
+ * with why it is ignored. Over-long text is dropped instead: it can never
+ * become valid, and echoing it back would only bloat the URL.
+ */
+function parsePatternParameter(value: string | null): PathPattern {
+  if (value === null) return EMPTY_PATH_PATTERN;
+  if (value.length > PATH_PATTERN_LENGTH_MAX) return EMPTY_PATH_PATTERN;
+  return parsePathPattern(value);
+}
+
 function parseZoomPath(value: string | null): string {
   if (value === null) return "";
   if (value.length > ZOOM_PATH_LENGTH_MAX) return "";
@@ -96,7 +109,10 @@ export function serializeViewQuery(query: ViewQuery): string {
   }
   if (!filters.showUnchanged) parameters.set(PARAMETER.unchanged, "0");
   if (!filters.showGenerated) parameters.set(PARAMETER.generated, "0");
-  if (filters.search !== "") parameters.set(PARAMETER.search, filters.search);
+  const include = patternSource(filters.include);
+  if (include !== "") parameters.set(PARAMETER.include, include);
+  const exclude = patternSource(filters.exclude);
+  if (exclude !== "") parameters.set(PARAMETER.exclude, exclude);
   if (query.zoomPath !== "") parameters.set(PARAMETER.zoom, query.zoomPath);
   // "/" and "," are legal in a query string; leaving them unescaped keeps shared links readable.
   const text = parameters.toString().replace(/%2F/g, "/").replace(/%2C/g, ",");

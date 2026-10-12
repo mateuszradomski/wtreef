@@ -8,7 +8,6 @@ import assert from "node:assert/strict";
 import { decodePullRequestData, FileStatus, type Tree } from "./decode.ts";
 import {
   buildTreeIndex,
-  computeSearchMatches,
   computeSubtreeMembership,
   computeWeights,
   DEFAULT_FILTERS,
@@ -21,6 +20,7 @@ import {
   TYPE_KEY_NONE,
   typeKeyOf,
 } from "./model.ts";
+import { parsePathPattern } from "./pattern.ts";
 import { loadFixtureJson, REAL_FIXTURE, TINY_FIXTURE } from "./test-support.ts";
 
 // Tiny fixture node indices (see web/fixtures/wtreef-example-1.json).
@@ -134,21 +134,66 @@ test("aggregation holds on the real fixture under every filter combination", () 
   }
 });
 
-test("search matches paths case-insensitively and lifts matches to directories", () => {
-  const tree = loadTree(TINY_FIXTURE);
-  const index = buildTreeIndex(tree);
-  const matches = new Uint8Array(tree.nodeCount);
-  assert.equal(computeSearchMatches(tree, index, "MATH", matches), 2);
-  assert.equal(matches[MATH], 1);
-  assert.equal(matches[MATH_TEST], 1);
-  assert.equal(matches[UTIL], 1);
-  assert.equal(matches[SRC], 1);
-  assert.equal(matches[APP], 0);
-  assert.equal(matches[DOCS], 0);
+/** The leaves with weight under `filters`, in node order. */
+function visibleLeaves(tree: Tree, filters: Filters): number[] {
+  const weights = weightsFor(tree, filters);
+  const leaves: number[] = [];
+  for (let node = 0; node < tree.nodeCount; node++) {
+    if (tree.kinds[node] !== 0 && (weights[node] ?? 0) > 0) leaves.push(node);
+  }
+  return leaves;
+}
 
-  computeSearchMatches(tree, index, "src/", matches);
-  assert.equal(matches[REST], 1, "rest nodes match through their directory");
-  assert.equal(computeSearchMatches(tree, index, "  ", matches), tree.nodeCount);
+function withPatterns(base: Filters, include: string, exclude: string): Filters {
+  return { ...base, include: parsePathPattern(include), exclude: parsePathPattern(exclude) };
+}
+
+test("include keeps only leaves whose full path matches, ignoring case", () => {
+  const tree = loadTree(TINY_FIXTURE);
+  assert.deepEqual(visibleLeaves(tree, withPatterns(DEFAULT_FILTERS, "MATH", "")), [MATH, MATH_TEST]);
+  assert.deepEqual(visibleLeaves(tree, withPatterns(DEFAULT_FILTERS, "^src/[^/]+$", "")), [APP, OLD, RENAMED]);
+  // Context: unchanged files match too, but the rest node has no path to match and is hidden.
+  assert.deepEqual(visibleLeaves(tree, withPatterns(CONTEXT_FILTERS, "^src/", "")), [APP, OLD, RENAMED, INDEX, COMPONENTS, MATH, MATH_TEST]);
+});
+
+test("exclude drops matching leaves and keeps rest nodes", () => {
+  const tree = loadTree(TINY_FIXTURE);
+  const weights = weightsFor(tree, withPatterns(CONTEXT_FILTERS, "", "\\.test\\.|^docs/"));
+  assert.equal(weights[MATH_TEST], 0);
+  assert.equal(weights[DOCS], 0, "a collapsed folder matches as its path plus a slash");
+  assert.equal(weights[REST], 9000, "a rest node has no path, so no exclude can name it");
+  assert.equal(weights[UTIL], 1500);
+});
+
+test("include and exclude combine, and an invalid pattern is ignored", () => {
+  const tree = loadTree(TINY_FIXTURE);
+  const both = withPatterns(DEFAULT_FILTERS, "^src/", "util");
+  assert.deepEqual(visibleLeaves(tree, both), [APP, OLD, RENAMED]);
+  const invalidInclude = withPatterns(DEFAULT_FILTERS, "(", "util");
+  assert.deepEqual(visibleLeaves(tree, invalidInclude), visibleLeaves(tree, withPatterns(DEFAULT_FILTERS, "", "util")));
+  const invalidBoth = withPatterns(CONTEXT_FILTERS, "[", "(");
+  assert.deepEqual(weightsFor(tree, invalidBoth), weightsFor(tree, CONTEXT_FILTERS));
+});
+
+test("aggregation holds on the real fixture with path patterns", () => {
+  const tree = loadTree(REAL_FIXTURE);
+  const index = buildTreeIndex(tree);
+  const weights = new Float64Array(tree.nodeCount);
+  const patterns: ReadonlyArray<readonly [string, string]> = [["\\.tsx$", ""], ["", "test"], ["frontend", "e2e|\\.json$"]];
+  for (const sizeMode of [SizeMode.context, SizeMode.churn]) {
+    for (const [include, exclude] of patterns) {
+      computeWeights(tree, index, withPatterns({ ...DEFAULT_FILTERS, sizeMode }, include, exclude), weights);
+      const childSums = new Float64Array(tree.nodeCount);
+      for (let node = 1; node < tree.nodeCount; node++) childSums[tree.parents[node] ?? 0]! += weights[node] ?? 0;
+      for (let node = 0; node < tree.nodeCount; node++) {
+        if (tree.kinds[node] === 0) assert.equal(weights[node], childSums[node], `node ${node}`);
+        if (tree.kinds[node] === 0 || (weights[node] ?? 0) === 0) continue;
+        const path = index.paths[node] ?? "";
+        if (include !== "") assert.match(path, new RegExp(include, "i"));
+        if (exclude !== "") assert.doesNotMatch(path, new RegExp(exclude, "i"));
+      }
+    }
+  }
 });
 
 test("subtree membership marks the zoomed directory and its descendants", () => {
@@ -191,6 +236,6 @@ test("derives type keys from file names", () => {
 test("reports active filters, ignoring size mode", () => {
   assert.equal(hasActiveFilters(DEFAULT_FILTERS), false);
   assert.equal(hasActiveFilters({ ...DEFAULT_FILTERS, sizeMode: SizeMode.churn }), false);
-  assert.equal(hasActiveFilters({ ...DEFAULT_FILTERS, search: "x" }), true);
+  assert.equal(hasActiveFilters({ ...DEFAULT_FILTERS, include: parsePathPattern("x") }), true);
   assert.equal(hasActiveFilters({ ...DEFAULT_FILTERS, hiddenTypes: new Set(["md"]) }), true);
 });

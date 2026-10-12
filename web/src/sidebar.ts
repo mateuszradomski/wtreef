@@ -33,8 +33,6 @@ export interface FileListInput {
   readonly tree: Tree;
   readonly index: TreeIndex;
   readonly weights: Float64Array;
-  readonly searchMatches: Uint8Array;
-  readonly searchActive: boolean;
   readonly insideZoom: Uint8Array;
   readonly diffUrls: readonly string[];
   readonly fallbackUrl: string;
@@ -81,7 +79,6 @@ export function renderFileList(sidebar: Sidebar, input: FileListInput): void {
   for (const node of index.changedFiles) {
     if ((input.weights[node] ?? 0) <= 0) continue;
     if (input.insideZoom[node] !== 1) continue;
-    if (input.searchActive && input.searchMatches[node] !== 1) continue;
     matching++;
     if (rows.length >= LIST_ROWS_MAX) continue;
     const row = createRow(tree, index, node, input);
@@ -97,7 +94,7 @@ export function renderFileList(sidebar: Sidebar, input: FileListInput): void {
   sidebar.footer.textContent =
     matching === 0
       ? "No changed files match these filters."
-      : `${formatCount(matching - LIST_ROWS_MAX)} more files. Narrow them down with the filters or search.`;
+      : `${formatCount(matching - LIST_ROWS_MAX)} more files. Narrow them down with the filters or a path pattern.`;
 }
 
 function createRow(tree: Tree, index: TreeIndex, node: number, input: FileListInput): HTMLAnchorElement {
