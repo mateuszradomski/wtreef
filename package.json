@@ -1,0 +1,11 @@
+{
+  "name": "wtreef-web",
+  "private": true,
+  "type": "module",
+  "description": "Build-time tooling only. Nothing here ships at runtime.",
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}
