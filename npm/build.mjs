@@ -33,7 +33,7 @@ for (const target of TARGETS) {
   const directory = join(OUTPUT, `${target.os}-${target.cpu}`);
   const binary = join(directory, "bin", target.os === "win32" ? "wtreef.exe" : "wtreef");
   mkdirSync(join(directory, "bin"), { recursive: true });
-  execFileSync("go", ["build", "-trimpath", "-ldflags=-s -w", "-o", binary, "./cmd/wtreef"], {
+  execFileSync("go", ["build", "-trimpath", "-tags=nethttpomithttp2", "-ldflags=-s -w", "-o", binary, "./cmd/wtreef"], {
     stdio: "inherit",
     env: { ...process.env, GOOS: target.goos, GOARCH: target.goarch, CGO_ENABLED: "0" },
   });

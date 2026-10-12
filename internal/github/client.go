@@ -90,7 +90,9 @@ func NewClient(config Config) *Client {
 		MaxIdleConnsPerHost:    config.ConcurrencyMax,
 		MaxConnsPerHost:        config.ConcurrencyMax,
 		MaxResponseHeaderBytes: responseHeaderBytesMax,
-		ForceAttemptHTTP2:      true,
+		// HTTP/1.1 only: one connection per concurrent request is what the
+		// limits above allow anyway, and release builds omit HTTP/2 to save size.
+		ForceAttemptHTTP2: false,
 		// Transparent gzip shrinks a 4 MB tree listing roughly tenfold.
 		DisableCompression: false,
 	}
