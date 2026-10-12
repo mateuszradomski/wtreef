@@ -354,7 +354,9 @@ function updateCanvasHover(view: View): void {
     : NO_NODE;
   // Inside a folder chain, the chain's top owns the frame (and the outline); its end owns the details.
   const hovered = node === state.layout.rootNode || node === NO_NODE ? NO_NODE : chainTop(state.tree, state.layout, node);
-  map.overlay.classList.toggle("is-clickable", isClickable(state, hovered));
+  // CSSOM, not a style attribute: the CSP forbids inline styles but allows this.
+  const cursor = isClickable(state, hovered) ? "pointer" : "default";
+  if (map.overlay.style.cursor !== cursor) map.overlay.style.cursor = cursor;
   if (hovered === NO_NODE) {
     hideTooltip(view.tooltip);
   } else {

@@ -12,7 +12,8 @@ export interface TooltipContent {
   /** Status swatch class and label, for changed files only. */
   readonly status: { readonly className: string; readonly label: string } | null;
   readonly facts: readonly string[];
-  readonly hint: string;
+  /** What a click does, for clickable nodes; "" otherwise. */
+  readonly action: string;
 }
 
 export function describeNode(tree: Tree, index: TreeIndex, node: number): TooltipContent {
@@ -23,10 +24,10 @@ export function describeNode(tree: Tree, index: TreeIndex, node: number): Toolti
   if (kind === NodeKind.rest) {
     const parentPath = index.paths[tree.parents[node] ?? 0] ?? "";
     const where = parentPath === "" ? "the repository root" : `${parentPath}/`;
-    return { title: `Other files in ${where}`, status: null, facts: [plural(files, "unchanged file", "unchanged files"), formatBytes(bytes)], hint: "" };
+    return { title: `Other files in ${where}`, status: null, facts: [plural(files, "unchanged file", "unchanged files"), formatBytes(bytes)], action: "" };
   }
   if (kind === NodeKind.collapsedDirectory) {
-    return { title: `${path}/`, status: null, facts: ["unchanged folder", plural(files, "file", "files"), formatBytes(bytes)], hint: "" };
+    return { title: `${path}/`, status: null, facts: ["unchanged folder", plural(files, "file", "files"), formatBytes(bytes)], action: "" };
   }
   if (kind === NodeKind.directory) {
     const changed = index.subtreeChangedFiles[node] ?? 0;
@@ -35,10 +36,10 @@ export function describeNode(tree: Tree, index: TreeIndex, node: number): Toolti
       formatChurn(index.subtreeAdditions[node] ?? 0, index.subtreeDeletions[node] ?? 0),
       formatBytes(bytes),
     ];
-    return { title: `${path}/`, status: null, facts, hint: "Click to zoom in" };
+    return { title: `${path}/`, status: null, facts, action: `Click to zoom into ${tree.names[node] ?? ""}` };
   }
   if (!isChangedFile(tree, node)) {
-    return { title: path, status: null, facts: ["unchanged", formatBytes(bytes)], hint: "" };
+    return { title: path, status: null, facts: ["unchanged", formatBytes(bytes)], action: "" };
   }
   const status = statusOf(tree.statuses[node] ?? 0);
   const facts = [formatChurn(tree.additions[node] ?? 0, tree.deletions[node] ?? 0)];
@@ -51,7 +52,7 @@ export function describeNode(tree: Tree, index: TreeIndex, node: number): Toolti
     title: path,
     status: { className: statusClassName(status), label: statusLabel(status) },
     facts,
-    hint: "Click to open the diff",
+    action: "Click to open the diff",
   };
 }
 
@@ -82,7 +83,7 @@ export function fillTooltip(tooltip: Tooltip, node: number, content: TooltipCont
   }
   for (const fact of content.facts) facts.append(element("span", "tooltip-fact", fact));
   const children: HTMLElement[] = [element("div", "tooltip-title", content.title), facts];
-  if (content.hint !== "") children.push(element("div", "tooltip-hint", content.hint));
+  if (content.action !== "") children.push(element("div", "tooltip-action", content.action));
   tooltip.root.replaceChildren(...children);
   tooltip.root.hidden = false;
   tooltip.node = node;

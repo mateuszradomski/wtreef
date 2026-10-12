@@ -3,6 +3,7 @@
 // Exclude patterns). Built once per PR; syncControls mirrors the view state
 // into it. It never owns state: every interaction goes through a callback.
 
+import { assert } from "./assert.ts";
 import type { Tree } from "./decode.ts";
 import { append, button, element } from "./dom.ts";
 import { type Filters, SizeMode } from "./model.ts";
@@ -94,7 +95,27 @@ function createSizeModeGroup(callbacks: ControlsCallbacks): {
     buttons.set(mode, option);
     segmented.append(option);
   }
+  // Radio semantics: arrows move the choice, and Tab enters and leaves the group as one stop.
+  segmented.addEventListener("keydown", (event) => {
+    const step = arrowStep(event.key);
+    if (step === 0) return;
+    const modes = SIZE_MODE_LABELS.map(([mode]) => mode);
+    const focused = modes.findIndex((mode) => buttons.get(mode) === document.activeElement);
+    if (focused < 0) return;
+    event.preventDefault();
+    const next = modes[(focused + step + modes.length) % modes.length];
+    assert(next !== undefined, "the index wraps within the modes");
+    buttons.get(next)?.focus();
+    callbacks.onSizeMode(next);
+  });
   return { segmented, buttons };
+}
+
+/** +1 for the next option, -1 for the previous one, 0 for any other key. */
+export function arrowStep(key: string): number {
+  if (key === "ArrowRight" || key === "ArrowDown") return 1;
+  if (key === "ArrowLeft" || key === "ArrowUp") return -1;
+  return 0;
 }
 
 export function syncControls(controls: Controls, input: ControlsInput): void {
@@ -102,6 +123,7 @@ export function syncControls(controls: Controls, input: ControlsInput): void {
     const active = mode === input.filters.sizeMode;
     option.setAttribute("aria-checked", active ? "true" : "false");
     option.classList.toggle("is-active", active);
+    option.tabIndex = active ? 0 : -1;
   }
   syncPatternField(controls.include, input.filters.include);
   syncPatternField(controls.exclude, input.filters.exclude);

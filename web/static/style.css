@@ -144,7 +144,7 @@ input {
 }
 
 :focus-visible {
-  outline: 1px solid var(--accent);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -189,10 +189,6 @@ input {
   width: 100%;
   height: 100%;
   display: block;
-}
-
-.map-overlay.is-clickable {
-  cursor: pointer;
 }
 
 .map-empty {
@@ -339,13 +335,44 @@ input {
   font-size: var(--text-meta);
 }
 
+/* A segmented control: a bordered track holding one button per option. */
 .segmented {
   display: flex;
-  align-items: center;
-  gap: 14px;
+  align-items: stretch;
+  gap: 2px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
 }
 
-.segment,
+.segment {
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg-2);
+  font-size: var(--text-control);
+  cursor: pointer;
+}
+
+.segment:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+/* surface-2 alone is 1.1:1 against the page; the fg-3 edge (5:1) is what shows the choice. */
+.segment.is-active {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--fg-3);
+  color: var(--fg);
+  cursor: default;
+}
+
+.segment:focus-visible {
+  outline-offset: 1px;
+}
+
 .text-button {
   padding: 2px 0;
   border: 0;
@@ -354,18 +381,8 @@ input {
   cursor: pointer;
 }
 
-.segment {
-  border-bottom: 1px solid transparent;
-}
-
-.segment:hover,
 .text-button:hover {
   color: var(--fg);
-}
-
-.segment.is-active {
-  color: var(--fg);
-  border-bottom-color: var(--accent);
 }
 
 /*
@@ -390,10 +407,13 @@ input {
   border-color: var(--fg-3);
 }
 
+/* The field draws the focus ring for its input, so the ring wraps label, text and badge together. */
 .pattern-field:focus-within {
   border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
+/* After focus, so a broken pattern stays red while it is being fixed. */
 .pattern-field.is-invalid {
   border-color: var(--status-deleted);
   box-shadow: 0 0 0 1px var(--status-deleted);
@@ -495,6 +515,10 @@ input {
 .crumb:hover {
   background: var(--surface-2);
   color: var(--fg);
+}
+
+.crumb:focus-visible {
+  outline-offset: 0;
 }
 
 .crumb.is-current {
@@ -680,8 +704,20 @@ input {
   background: var(--surface-2);
 }
 
+/* Full-width rows sit edge to edge, so their ring goes inside. */
+.filter-row:focus-visible,
+.file-row:focus-visible {
+  outline-offset: -2px;
+}
+
 .filter-row[aria-pressed="false"] {
   color: var(--fg-3);
+}
+
+/* fg-3 is 4.46:1 on the light hover fill, so hovered quiet text steps up to fg-2. */
+.filter-row[aria-pressed="false"]:hover:not(:disabled),
+.filter-row:hover:not(:disabled) .filter-count {
+  color: var(--fg-2);
 }
 
 .filter-row:disabled {
@@ -996,9 +1032,12 @@ input {
   background: var(--status-renamed);
 }
 
-.tooltip-hint {
-  margin-top: 6px;
-  color: var(--fg-3);
+/* The last line says what a click does; fg-2, since fg-3 misses 4.5:1 on surface-2 in light. */
+.tooltip-action {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line-2);
+  color: var(--fg-2);
   font-size: var(--text-meta);
 }
 
