@@ -1,0 +1,193 @@
+// Methodology: the tiny fixture's numbers are small enough to compute by
+// hand, so each test states the expected weights explicitly. Then a
+// property check on the real fixture: every directory's weight equals the
+// sum of its children under every combination of filters.
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { decodePullRequestData, FileStatus, type Tree } from "./decode.ts";
+import {
+  buildTreeIndex,
+  computeSearchMatches,
+  computeSubtreeMembership,
+  computeWeights,
+  DEFAULT_FILTERS,
+  ESTIMATED_BYTES_PER_CHANGED_LINE,
+  type Filters,
+  findDirectoryByPath,
+  hasActiveFilters,
+  isGeneratedPath,
+  SizeMode,
+  TYPE_KEY_NONE,
+  typeKeyOf,
+} from "./model.ts";
+import { loadFixtureJson, REAL_FIXTURE, TINY_FIXTURE } from "./test-support.ts";
+
+// Tiny fixture node indices (see web/fixtures/wtreef-example-1.json).
+const ROOT = 0, SRC = 1, LOCKFILE = 2, README = 3, DOCS = 4, LICENSE = 5, APP = 6, OLD = 7;
+const RENAMED = 8, UTIL = 9, INDEX = 10, COMPONENTS = 11, REST = 12, MATH = 13, MATH_TEST = 14;
+
+function loadTree(name: string): Tree {
+  return decodePullRequestData(loadFixtureJson(name)).tree;
+}
+
+function weightsFor(tree: Tree, filters: Filters): Float64Array {
+  const weights = new Float64Array(tree.nodeCount);
+  computeWeights(tree, buildTreeIndex(tree), filters, weights);
+  return weights;
+}
+
+test("derives paths, depths and children", () => {
+  const tree = loadTree(TINY_FIXTURE);
+  const index = buildTreeIndex(tree);
+  assert.equal(index.paths[MATH], "src/util/math.ts");
+  assert.equal(index.paths[REST], "");
+  assert.equal(index.paths[ROOT], "");
+  assert.equal(index.depths[MATH], 3);
+  const srcChildren = [...index.childIndices.subarray(index.childStart[SRC], index.childStart[SRC + 1])];
+  assert.deepEqual(srcChildren, [APP, OLD, RENAMED, UTIL, INDEX, COMPONENTS, REST]);
+  assert.equal(findDirectoryByPath(tree, index, "src/util"), UTIL);
+  assert.equal(findDirectoryByPath(tree, index, "src/app.ts"), -1);
+});
+
+test("summarizes statuses, types, churn and subtree totals", () => {
+  const tree = loadTree(TINY_FIXTURE);
+  const index = buildTreeIndex(tree);
+  assert.deepEqual([...index.statusCounts], [0, 2, 3, 1, 1]);
+  assert.deepEqual(index.typeBuckets, [
+    { key: "ts", count: 5 },
+    { key: "json", count: 1 },
+    { key: "md", count: 1 },
+  ]);
+  assert.equal(index.generatedChangedCount, 1);
+  assert.equal(index.churnMax, 580);
+  assert.deepEqual([...index.changedFiles], [LOCKFILE, OLD, MATH, APP, MATH_TEST, README, RENAMED]);
+  assert.equal(index.subtreeAdditions[ROOT], 435);
+  assert.equal(index.subtreeDeletions[ROOT], 378);
+  assert.equal(index.subtreeFiles[SRC], 1 + 1 + 1 + 1 + 12 + 7 + 2);
+  assert.equal(index.subtreeChangedFiles[SRC], 5);
+});
+
+test("context weights use bytes and estimate files without bytes", () => {
+  const tree = loadTree(TINY_FIXTURE);
+  const weights = weightsFor(tree, DEFAULT_FILTERS);
+  assert.equal(weights[APP], 4200);
+  assert.equal(weights[OLD], 85 * ESTIMATED_BYTES_PER_CHANGED_LINE);
+  assert.equal(weights[RENAMED], 900);
+  assert.equal(weights[COMPONENTS], 25000);
+  assert.equal(weights[REST], 9000);
+  assert.equal(weights[UTIL], 1500 + 800);
+  assert.equal(weights[SRC], 4200 + 3400 + 900 + 2300 + 300 + 25000 + 9000);
+  assert.equal(weights[ROOT], (weights[SRC] ?? 0) + 120000 + 2000 + 50000 + 1069);
+});
+
+test("churn weights count changed lines and drop context", () => {
+  const tree = loadTree(TINY_FIXTURE);
+  const weights = weightsFor(tree, { ...DEFAULT_FILTERS, sizeMode: SizeMode.churn });
+  assert.equal(weights[RENAMED], 1, "a pure rename still gets a sliver");
+  assert.equal(weights[OLD], 85);
+  assert.equal(weights[INDEX], 0);
+  assert.equal(weights[COMPONENTS], 0);
+  assert.equal(weights[REST], 0);
+  assert.equal(weights[LICENSE], 0);
+  assert.equal(weights[ROOT], 435 + 378 + 1);
+});
+
+test("filters zero out leaves before aggregation", () => {
+  const tree = loadTree(TINY_FIXTURE);
+  const noAdded = weightsFor(tree, { ...DEFAULT_FILTERS, hiddenStatuses: 1 << FileStatus.added });
+  assert.equal(noAdded[UTIL], 0);
+  assert.equal(noAdded[MATH], 0);
+
+  const noTs = weightsFor(tree, { ...DEFAULT_FILTERS, hiddenTypes: new Set(["ts"]) });
+  assert.equal(noTs[APP], 0);
+  assert.equal(noTs[INDEX], 300, "type filters apply to changed files only");
+
+  const noContext = weightsFor(tree, { ...DEFAULT_FILTERS, showUnchanged: false });
+  assert.equal(noContext[DOCS], 0);
+  assert.equal(noContext[REST], 0);
+  assert.equal(noContext[ROOT], 120000 + 2000 + 4200 + 3400 + 900 + 2300);
+
+  const noGenerated = weightsFor(tree, { ...DEFAULT_FILTERS, showGenerated: false });
+  assert.equal(noGenerated[LOCKFILE], 0);
+  assert.equal(noGenerated[README], 2000);
+});
+
+test("aggregation holds on the real fixture under every filter combination", () => {
+  const tree = loadTree(REAL_FIXTURE);
+  const index = buildTreeIndex(tree);
+  const weights = new Float64Array(tree.nodeCount);
+  for (const sizeMode of [SizeMode.context, SizeMode.churn]) {
+    for (const showUnchanged of [true, false]) {
+      for (const hiddenStatuses of [0, 1 << FileStatus.added, 1 << FileStatus.modified]) {
+        computeWeights(tree, index, { ...DEFAULT_FILTERS, sizeMode, showUnchanged, hiddenStatuses }, weights);
+        const childSums = new Float64Array(tree.nodeCount);
+        for (let node = 1; node < tree.nodeCount; node++) childSums[tree.parents[node] ?? 0]! += weights[node] ?? 0;
+        for (let node = 0; node < tree.nodeCount; node++) {
+          if (tree.kinds[node] === 0) assert.equal(weights[node], childSums[node], `node ${node}`);
+        }
+      }
+    }
+  }
+});
+
+test("search matches paths case-insensitively and lifts matches to directories", () => {
+  const tree = loadTree(TINY_FIXTURE);
+  const index = buildTreeIndex(tree);
+  const matches = new Uint8Array(tree.nodeCount);
+  assert.equal(computeSearchMatches(tree, index, "MATH", matches), 2);
+  assert.equal(matches[MATH], 1);
+  assert.equal(matches[MATH_TEST], 1);
+  assert.equal(matches[UTIL], 1);
+  assert.equal(matches[SRC], 1);
+  assert.equal(matches[APP], 0);
+  assert.equal(matches[DOCS], 0);
+
+  computeSearchMatches(tree, index, "src/", matches);
+  assert.equal(matches[REST], 1, "rest nodes match through their directory");
+  assert.equal(computeSearchMatches(tree, index, "  ", matches), tree.nodeCount);
+});
+
+test("subtree membership marks the zoomed directory and its descendants", () => {
+  const tree = loadTree(TINY_FIXTURE);
+  const inside = new Uint8Array(tree.nodeCount);
+  computeSubtreeMembership(tree, UTIL, inside);
+  assert.deepEqual([...inside].flatMap((flag, node) => (flag === 1 ? [node] : [])), [UTIL, MATH, MATH_TEST]);
+});
+
+test("recognizes lockfiles and generated paths", () => {
+  const generated = [
+    "package-lock.json",
+    "web/yarn.lock",
+    "Cargo.lock",
+    "go.sum",
+    "app.min.js",
+    "app.MIN.CSS",
+    "bundle.js.map",
+    "__snapshots__/x.test.ts.snap",
+    "packages/a/dist/index.js",
+    "vendor/lib/x.go",
+    "src/__generated__/schema.ts",
+    "api.generated.ts",
+  ];
+  for (const path of generated) assert.ok(isGeneratedPath(path, false), path);
+  const handwritten = ["src/build.ts", "distance.ts", "lock.json", "generated.md", "src/mapper.ts"];
+  for (const path of handwritten) assert.ok(!isGeneratedPath(path, false), path);
+  assert.ok(isGeneratedPath("packages/a/dist", true));
+  assert.ok(!isGeneratedPath("packages/a/src", true));
+});
+
+test("derives type keys from file names", () => {
+  assert.equal(typeKeyOf("index.TS"), "ts");
+  assert.equal(typeKeyOf("types.d.ts"), "ts");
+  assert.equal(typeKeyOf(".gitignore"), TYPE_KEY_NONE);
+  assert.equal(typeKeyOf("Makefile"), TYPE_KEY_NONE);
+  assert.equal(typeKeyOf("trailing."), TYPE_KEY_NONE);
+});
+
+test("reports active filters, ignoring size mode", () => {
+  assert.equal(hasActiveFilters(DEFAULT_FILTERS), false);
+  assert.equal(hasActiveFilters({ ...DEFAULT_FILTERS, sizeMode: SizeMode.churn }), false);
+  assert.equal(hasActiveFilters({ ...DEFAULT_FILTERS, search: "x" }), true);
+  assert.equal(hasActiveFilters({ ...DEFAULT_FILTERS, hiddenTypes: new Set(["md"]) }), true);
+});
