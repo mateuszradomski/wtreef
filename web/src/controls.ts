@@ -65,7 +65,8 @@ export function createControls(callbacks: ControlsCallbacks): Controls {
     onCommit: callbacks.onInclude,
   });
   const exclude = createPatternField({ name: "exclude", label: "Exclude", placeholder: "test|\\.snap$", onCommit: callbacks.onExclude });
-  const end = append(element("div", "controls-end"), sizeGroup, include.root, exclude.root);
+  const patterns = append(element("div", "pattern-fields"), include.root, exclude.root);
+  const end = append(element("div", "controls-end"), sizeGroup, patterns);
   append(root, crumbs, end);
   return {
     root,

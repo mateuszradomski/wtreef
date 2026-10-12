@@ -318,7 +318,8 @@ input {
   font-size: var(--text-control);
 }
 
-.controls-end {
+.controls-end,
+.pattern-fields {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -458,6 +459,7 @@ input {
 .pattern-error {
   position: absolute;
   top: calc(100% + 6px);
+  right: -1px;
   left: -1px;
   z-index: 5;
   padding: 3px 8px;
@@ -466,7 +468,6 @@ input {
   background: var(--surface-2);
   color: var(--status-deleted-ink);
   font-size: var(--text-meta);
-  white-space: nowrap;
   pointer-events: none;
 }
 
@@ -488,8 +489,10 @@ input {
   min-width: 0;
 }
 
+/* When the path is too long, the start gives way: the current folder is the part worth seeing. */
 .crumb-list {
   display: flex;
+  justify-content: flex-end;
   align-items: center;
   gap: 2px;
   min-width: 0;
@@ -780,6 +783,12 @@ input {
   content: none;
 }
 
+/* Label and count share a baseline (12px sans next to 11px mono); the box stays centered. */
+.filter-label,
+.filter-count {
+  align-self: baseline;
+}
+
 .filter-label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1066,27 +1075,26 @@ input {
     gap: 12px;
   }
 
+  /* Crumbs share a row with Size; the two patterns split the row below. */
   .controls-bar {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
     padding: 8px 12px;
   }
 
-  .crumbs {
-    flex-basis: 100%;
+  .controls-end {
+    display: contents;
   }
 
-  .controls-end {
-    flex-wrap: wrap;
-    width: 100%;
+  .pattern-fields {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
 
-  .control-group {
-    flex-basis: 100%;
-  }
-
   .pattern-field {
-    flex: 1 1 140px;
     width: auto;
     min-width: 0;
   }

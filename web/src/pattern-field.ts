@@ -10,7 +10,7 @@ import { type PathPattern, patternSource } from "./pattern.ts";
 /** Long enough to skip intermediate keystrokes, short enough to feel live. */
 const INPUT_DEBOUNCE_MS = 120;
 const NO_TIMER = 0;
-export const PATTERN_TITLE = "Regular expression, case-insensitive, matched against the full path";
+const PATTERN_TITLE = "Regular expression, case-insensitive, matched against the full path";
 
 export interface PatternFieldOptions {
   /** Distinguishes the two fields in element ids. */
