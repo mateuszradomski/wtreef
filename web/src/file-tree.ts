@@ -346,25 +346,25 @@ export interface TreeKeyAction {
 const NO_KEY_ACTION: TreeKeyAction = { kind: TreeKeyKind.none, row: NO_ROW };
 
 /**
- * The action for `key` pressed on `row`, among the first `rowLimit` rows
- * (the rendered ones). Arrows, Home and End are always handled, if only by
- * staying put, so they never scroll the list; `none` leaves the key to the
- * browser, as for Enter on a file, which follows its link.
+ * The action for `key` pressed on `row`. Arrows, Home and End are always
+ * handled, if only by staying put, so they never scroll the list; `none`
+ * leaves the key to the browser, as for Enter on a file, which follows its
+ * link.
  */
-export function treeKeyAction(tree: Tree, fileTree: FileTree, rowLimit: number, row: number, key: string): TreeKeyAction {
-  assert(rowLimit <= fileTree.rowCount, "only rendered rows are reachable");
-  assert(row >= 0 && row < rowLimit, "keys go to rendered rows");
-  if (key === "ArrowDown") return focusRow(Math.min(row + 1, rowLimit - 1));
+export function treeKeyAction(tree: Tree, fileTree: FileTree, row: number, key: string): TreeKeyAction {
+  const { rowCount } = fileTree;
+  assert(row >= 0 && row < rowCount, "keys go to rows");
+  if (key === "ArrowDown") return focusRow(Math.min(row + 1, rowCount - 1));
   if (key === "ArrowUp") return focusRow(Math.max(row - 1, 0));
   if (key === "Home") return focusRow(0);
-  if (key === "End") return focusRow(rowLimit - 1);
+  if (key === "End") return focusRow(rowCount - 1);
   const isFolder = isFolderRow(tree, fileTree, row);
   const expanded = fileTree.rowExpanded[row] === 1;
   if (key === "ArrowRight") {
     if (!isFolder) return focusRow(row);
     if (!expanded) return { kind: TreeKeyKind.expand, row };
     const child = row + 1;
-    return child < rowLimit && fileTree.rowParents[child] === row ? focusRow(child) : focusRow(row);
+    return child < rowCount && fileTree.rowParents[child] === row ? focusRow(child) : focusRow(row);
   }
   if (key === "ArrowLeft") {
     if (isFolder && expanded) return { kind: TreeKeyKind.collapse, row };

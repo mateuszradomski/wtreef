@@ -1,11 +1,12 @@
 // GitHub anchors each file in a PR's "Files changed" tab at
-// #diff-{sha256hex(path)}. The hashes are computed once after load, because
-// crypto.subtle is async and a click handler must call window.open
-// synchronously or popup blockers step in.
+// #diff-{sha256hex(path)}. A file's anchor is hashed the first time its
+// link is needed and then kept: the file list builds a screenful of rows at
+// a time, and a click on a tile must call window.open synchronously or
+// popup blockers step in.
 
 import { assert } from "./assert.ts";
 import type { PullRequest } from "./decode.ts";
-import type { TreeIndex } from "./model.ts";
+import { sha256Hex } from "./sha256.ts";
 
 export function filesTabUrl(pullRequest: PullRequest): string {
   const owner = encodeURIComponent(pullRequest.owner);
@@ -13,36 +14,25 @@ export function filesTabUrl(pullRequest: PullRequest): string {
   return `https://github.com/${owner}/${repo}/pull/${pullRequest.number}/files`;
 }
 
-function hexOf(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let hex = "";
-  for (const byte of bytes) hex += byte.toString(16).padStart(2, "0");
-  return hex;
+export interface DiffUrls {
+  readonly filesTab: string;
+  /** Paths by node, as in TreeIndex. */
+  readonly paths: readonly string[];
+  /** Links by node; "" until a node's link is first asked for. */
+  readonly urls: string[];
 }
 
-/**
- * Returns one URL per node: the file's diff anchor for changed files, and
- * "" for everything else. Falls back to the plain files tab when the page
- * is not a secure context and crypto.subtle is missing.
- */
-export async function computeDiffUrls(pullRequest: PullRequest, index: TreeIndex, nodeCount: number): Promise<string[]> {
-  const urls: string[] = new Array<string>(nodeCount).fill("");
-  const base = filesTabUrl(pullRequest);
-  const subtle = globalThis.crypto?.subtle;
-  if (subtle === undefined) {
-    for (const node of index.changedFiles) urls[node] = base;
-    return urls;
-  }
-  const encoder = new TextEncoder();
-  const digests = await Promise.all(
-    Array.from(index.changedFiles, (node) => subtle.digest("SHA-256", encoder.encode(index.paths[node] ?? ""))),
-  );
-  assert(digests.length === index.changedFiles.length, "one digest per changed file");
-  for (let position = 0; position < digests.length; position++) {
-    const node = index.changedFiles[position] ?? 0;
-    const digest = digests[position];
-    assert(digest !== undefined, "digest exists for every changed file");
-    urls[node] = `${base}#diff-${hexOf(digest)}`;
-  }
-  return urls;
+export function createDiffUrls(pullRequest: PullRequest, paths: readonly string[]): DiffUrls {
+  return { filesTab: filesTabUrl(pullRequest), paths, urls: new Array<string>(paths.length).fill("") };
+}
+
+/** The link to a changed file's diff in the files tab. */
+export function diffUrl(diffUrls: DiffUrls, node: number): string {
+  const known = diffUrls.urls[node] ?? "";
+  if (known !== "") return known;
+  const path = diffUrls.paths[node] ?? "";
+  assert(path !== "", "only files with a path have a diff");
+  const url = `${diffUrls.filesTab}#diff-${sha256Hex(path)}`;
+  diffUrls.urls[node] = url;
+  return url;
 }

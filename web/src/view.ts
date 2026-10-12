@@ -10,7 +10,7 @@
 
 import { assert } from "./assert.ts";
 import { NodeKind, type PullRequestData, type Tree } from "./decode.ts";
-import { computeDiffUrls, filesTabUrl } from "./diff.ts";
+import { createDiffUrls, type DiffUrls, diffUrl } from "./diff.ts";
 import { type ContextMenu, createContextMenu, type MenuOpening, openContextMenu } from "./context-menu.ts";
 import { type ControlTooltip, hideControlTooltip, installControlTooltip } from "./control-tooltip.ts";
 import { createControls, type Controls, type ControlsCallbacks, syncControls } from "./controls.ts";
@@ -74,8 +74,7 @@ export interface ViewState {
   readonly index: TreeIndex;
   /** "⌥" or "Alt", as hints name the hide modifier on this platform. */
   readonly altKey: string;
-  /** Filled asynchronously after load; "" until then and for unchanged nodes. */
-  diffUrls: readonly string[];
+  readonly diffUrls: DiffUrls;
   filters: Filters;
   zoomNode: number;
   fileView: FileView;
@@ -162,18 +161,6 @@ export function mountPullRequestView(root: HTMLElement, data: PullRequestData, s
 
   attachMapEvents(view);
   attachWindowEvents(view);
-  const mounted = view;
-  computeDiffUrls(data.pullRequest, state.index, data.tree.nodeCount).then(
-    (urls) => {
-      mounted.state.diffUrls = urls;
-      mounted.state.listDirty = true;
-      requestFrame(mounted);
-    },
-    (error: unknown) => {
-      // Links keep pointing at the files tab, which is still the right page.
-      console.error("wtreef: could not hash paths for diff anchors", error);
-    },
-  );
   requestFrame(view);
   return view;
 }
@@ -243,7 +230,7 @@ function createState(data: PullRequestData, search: string): ViewState {
     tree,
     index,
     altKey: altKeyLabel(currentPlatform()),
-    diffUrls: [],
+    diffUrls: createDiffUrls(data.pullRequest, index.paths),
     filters: query.filters,
     zoomNode,
     fileView: query.fileView,
@@ -385,7 +372,6 @@ function changedFilesInput(state: ViewState): ChangedFilesInput {
     zoomPath: state.index.paths[state.zoomNode] ?? "",
     collapsedFolders: state.collapsedFolders,
     diffUrls: state.diffUrls,
-    fallbackUrl: filesTabUrl(state.data.pullRequest),
   };
 }
 
@@ -579,9 +565,7 @@ function runNodeAction(view: View, node: number, action: NodeAction): void {
   const { state } = view;
   if (action === NodeAction.openDiff) {
     assert(isChangedFile(state.tree, node), "only changed files have a diff");
-    // Until the anchors are hashed (or if hashing failed), the files tab is the closest page.
-    const anchored = state.diffUrls[node] ?? "";
-    window.open(anchored === "" ? filesTabUrl(state.data.pullRequest) : anchored, "_blank", "noopener,noreferrer");
+    window.open(diffUrl(state.diffUrls, node), "_blank", "noopener,noreferrer");
   } else if (action === NodeAction.zoom) {
     zoomTo(view, node);
   } else if (action === NodeAction.hide) {

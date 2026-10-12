@@ -105,7 +105,7 @@ export function buildTreeIndex(tree: Tree): TreeIndex {
   const { paths, depths } = buildPaths(tree);
   const generated = new Uint8Array(tree.nodeCount);
   for (let node = 1; node < tree.nodeCount; node++) {
-    generated[node] = isGeneratedNode(tree, node, paths[node] ?? "") ? 1 : 0;
+    generated[node] = isGeneratedNode(tree, node, generated[tree.parents[node] ?? 0] === 1) ? 1 : 0;
   }
   const { typeBuckets, typeBucketOfNode } = buildTypeBuckets(tree);
   const statusCounts = new Uint32Array(FileStatus.renamed + 1);
@@ -178,17 +178,27 @@ export function isGeneratedPath(path: string, isDirectory: boolean): boolean {
   for (let segment = 0; segment < directoryCount; segment++) {
     if (GENERATED_DIRECTORY_NAMES.has(segments[segment] ?? "")) return true;
   }
-  if (isDirectory) return false;
+  return !isDirectory && isGeneratedFileName(name);
+}
+
+function isGeneratedFileName(name: string): boolean {
   if (GENERATED_FILE_NAMES.has(name)) return true;
   if (name.includes(GENERATED_NAME_INFIX)) return true;
   const nameLower = name.toLowerCase();
   return GENERATED_FILE_SUFFIXES.some((suffix) => nameLower.endsWith(suffix));
 }
 
-function isGeneratedNode(tree: Tree, node: number, path: string): boolean {
+/**
+ * isGeneratedPath for a node, from its own name and whether its parent is
+ * generated: a folder is when any folder on its path is, so the walk from
+ * the root splits no paths.
+ */
+function isGeneratedNode(tree: Tree, node: number, parentGenerated: boolean): boolean {
   const kind = tree.kinds[node];
   if (kind === NodeKind.rest) return false;
-  return isGeneratedPath(path, kind !== NodeKind.file);
+  if (parentGenerated) return true;
+  const name = tree.names[node] ?? "";
+  return kind === NodeKind.file ? isGeneratedFileName(name) : GENERATED_DIRECTORY_NAMES.has(name);
 }
 
 /** Lowercased extension after the last dot; dotfiles and extensionless names map to TYPE_KEY_NONE. */

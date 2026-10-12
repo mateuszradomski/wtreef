@@ -340,7 +340,7 @@ test("keys move between rows, open and close folders, and leave links to the bro
   const backend = rowOfPath(scenario, "packages/backend");
   const frontend = rowOfPath(scenario, "packages/frontend/src");
   const last = fileTree.rowCount - 1;
-  const act = (row: number, key: string, rowLimit: number = fileTree.rowCount) => treeKeyAction(tree, fileTree, rowLimit, row, key);
+  const act = (row: number, key: string) => treeKeyAction(tree, fileTree, row, key);
   const focus = (row: number) => ({ kind: TreeKeyKind.focus, row });
 
   assert.deepEqual(act(docs, "ArrowDown"), focus(guide));
@@ -349,7 +349,6 @@ test("keys move between rows, open and close folders, and leave links to the bro
   assert.deepEqual(act(last, "ArrowDown"), focus(last), "the last row stays put");
   assert.deepEqual(act(packages, "Home"), focus(0));
   assert.deepEqual(act(packages, "End"), focus(last));
-  assert.deepEqual(act(packages, "End", 4), focus(3), "rows past the rendering bound are out of reach");
 
   assert.deepEqual(act(backend, "ArrowRight"), { kind: TreeKeyKind.expand, row: backend });
   assert.deepEqual(act(packages, "ArrowRight"), focus(backend), "an open folder moves to its first child");
@@ -357,7 +356,7 @@ test("keys move between rows, open and close folders, and leave links to the bro
   assert.deepEqual(act(frontend, "ArrowLeft"), { kind: TreeKeyKind.collapse, row: frontend });
   assert.deepEqual(act(backend, "ArrowLeft"), focus(packages), "a closed folder moves to its parent");
   assert.deepEqual(act(guide, "ArrowLeft"), focus(docs), "a file moves to its parent");
-  assert.deepEqual(act(packages, "ArrowLeft", 3), { kind: TreeKeyKind.collapse, row: packages });
+  assert.deepEqual(act(packages, "ArrowLeft"), { kind: TreeKeyKind.collapse, row: packages });
 
   assert.deepEqual(act(frontend, "Enter"), { kind: TreeKeyKind.collapse, row: frontend });
   assert.deepEqual(act(backend, " "), { kind: TreeKeyKind.expand, row: backend });

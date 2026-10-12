@@ -267,6 +267,31 @@ test("recognizes lockfiles and generated paths", () => {
   assert.ok(!isGeneratedPath("packages/a/src", true));
 });
 
+test("flags exactly the nodes whose paths look generated, nested ones included", () => {
+  // The real fixture, with every fifth folder and file renamed to something generated, where no sibling has that name yet.
+  const json = loadFixtureJson(REAL_FIXTURE);
+  const tree = json["tree"] as { names: string[]; parents: number[]; kinds: number[] };
+  const siblingNames = new Set(tree.names.map((name, node) => `${tree.parents[node]}/${name}`));
+  for (let node = 1; node < tree.names.length; node += 5) {
+    const kind = tree.kinds[node];
+    if (kind === NodeKind.rest) continue;
+    const name = kind === NodeKind.file ? `${tree.names[node]}.map` : "dist";
+    if (siblingNames.has(`${tree.parents[node]}/${name}`)) continue;
+    siblingNames.add(`${tree.parents[node]}/${name}`);
+    tree.names[node] = name;
+  }
+  const data = decodePullRequestData(json);
+  const index = buildTreeIndex(data.tree);
+  let generatedCount = 0;
+  for (let node = 1; node < data.tree.nodeCount; node++) {
+    const kind = data.tree.kinds[node];
+    const expected = kind !== NodeKind.rest && isGeneratedPath(index.paths[node] ?? "", kind !== NodeKind.file);
+    assert.equal(index.generated[node] === 1, expected, index.paths[node] ?? "");
+    if (expected) generatedCount++;
+  }
+  assert.ok(generatedCount > data.tree.nodeCount / 5, "the renames reach nested nodes");
+});
+
 test("derives type keys from file names", () => {
   assert.equal(typeKeyOf("index.TS"), "ts");
   assert.equal(typeKeyOf("types.d.ts"), "ts");

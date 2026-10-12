@@ -35,9 +35,16 @@ export function rgbToHex(color: Rgb): string {
   return `#${hex(color.red)}${hex(color.green)}${hex(color.blue)}`;
 }
 
-function decodeSrgb(channel: number): number {
+function decodeSrgbExactly(channel: number): number {
   const value = channel / 255;
   return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+}
+
+/** Channels are whole numbers almost always (parsed or rounded), and every tile's ink is picked through this at load. */
+const LINEAR_BY_CHANNEL = Float64Array.from({ length: 256 }, (_, channel) => decodeSrgbExactly(channel));
+
+function decodeSrgb(channel: number): number {
+  return Number.isInteger(channel) && channel >= 0 && channel <= 255 ? LINEAR_BY_CHANNEL[channel]! : decodeSrgbExactly(channel);
 }
 
 function encodeSrgb(linear: number): number {
@@ -87,14 +94,17 @@ function relativeLuminance(color: Rgb): number {
 
 /** WCAG 2 contrast ratio, 1 to 21. */
 export function contrastRatio(first: Rgb, second: Rgb): number {
-  const lighter = Math.max(relativeLuminance(first), relativeLuminance(second));
-  const darker = Math.min(relativeLuminance(first), relativeLuminance(second));
-  return (lighter + 0.05) / (darker + 0.05);
+  return luminanceContrast(relativeLuminance(first), relativeLuminance(second));
+}
+
+function luminanceContrast(first: number, second: number): number {
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
 }
 
 /** The ink with the higher contrast against `background`. */
 export function pickInk(background: Rgb, light: Rgb, dark: Rgb): Rgb {
-  return contrastRatio(background, light) >= contrastRatio(background, dark) ? light : dark;
+  const behind = relativeLuminance(background);
+  return luminanceContrast(behind, relativeLuminance(light)) >= luminanceContrast(behind, relativeLuminance(dark)) ? light : dark;
 }
 
 export interface DiffScale {

@@ -5,8 +5,9 @@ export class AssertionError extends Error {
   override name = "AssertionError";
 }
 
-export function assert(condition: boolean, message: string): asserts condition {
-  if (!condition) throw new AssertionError(message);
+/** In loops over every node, pass `message` as a function: it is then built only when the check fails. */
+export function assert(condition: boolean, message: string | (() => string)): asserts condition {
+  if (!condition) throw new AssertionError(typeof message === "string" ? message : message());
 }
 
 export function unreachable(value: never, message: string): never {

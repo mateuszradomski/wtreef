@@ -10,6 +10,8 @@ const NO_BREAK_SPACE = " ";
 
 export function formatCount(count: number): string {
   assert(Number.isFinite(count), "count must be finite");
+  // Every tile label is formatted on every redraw, and most counts need no separator; Intl is slow for those.
+  if (Number.isInteger(count) && count >= 0 && count < 1000) return String(count);
   return INTEGER_FORMAT.format(count);
 }
 

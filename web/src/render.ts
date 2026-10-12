@@ -69,11 +69,21 @@ export interface TileStyles {
 export function computeTileStyles(tree: Tree, index: TreeIndex, palette: ChartPalette): TileStyles {
   const fills: string[] = new Array<string>(tree.nodeCount);
   const inks: string[] = new Array<string>(tree.nodeCount);
+  // Most tiles share a palette color: the same object, converted once.
+  const hexByColor = new Map<Rgb, string>();
+  const hexOf = (color: Rgb): string => {
+    let hex = hexByColor.get(color);
+    if (hex === undefined) {
+      hex = rgbToHex(color);
+      hexByColor.set(color, hex);
+    }
+    return hex;
+  };
   for (let node = 0; node < tree.nodeCount; node++) {
     const fill = tileFill(tree, index, palette, node);
-    fills[node] = rgbToHex(fill);
+    fills[node] = hexOf(fill);
     const isChanged = isChangedFile(tree, node) || (index.subtreeChangedFiles[node] ?? 0) > 0;
-    inks[node] = isChanged ? rgbToHex(pickInk(fill, palette.labelInkLight, palette.labelInkDark)) : palette.contextText;
+    inks[node] = isChanged ? hexOf(pickInk(fill, palette.labelInkLight, palette.labelInkDark)) : palette.contextText;
   }
   return { fills, inks };
 }
@@ -119,6 +129,7 @@ const HATCH_SPACING_PX = 10;
 
 export function drawBase(context: CanvasRenderingContext2D, scene: Scene, pixelRatio: number): void {
   const { layout, tree } = scene;
+  forgetFont(context);
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   context.fillStyle = scene.palette.canvas;
   context.fillRect(0, 0, layout.width, layout.height);
@@ -156,17 +167,18 @@ function drawFrameHeader(context: CanvasRenderingContext2D, scene: Scene, node: 
   const x = layout.rects[node * 4] ?? 0;
   const y = layout.rects[node * 4 + 1] ?? 0;
   const width = layout.rects[node * 4 + 2] ?? 0;
-  context.font = `${LABEL.headerSizePx}px ${palette.fontSans}`;
+  const font = `${LABEL.headerSizePx}px ${palette.fontSans}`;
   context.fillStyle = color;
   const available = width - 2 * LABEL.paddingX;
   const path = folderPath(scene, node);
   const baseline = y + LAYOUT.padding + HEADER_BASELINE_Y;
   const hovered = color === palette.frameTextHover;
-  const label = fitFolderPath(context, path, available);
+  const label = fitFolderPath(context, font, path, available);
   const split = label.lastIndexOf("/") + 1;
   const prefix = label.slice(0, split);
+  useFont(context, font);
   if (prefix !== "") context.fillText(prefix, x + LABEL.paddingX, baseline);
-  const prefixWidth = context.measureText(prefix).width;
+  const prefixWidth = textWidth(context, font, prefix);
   context.fillStyle = hovered ? color : palette.frameEmphasis;
   context.fillText(label.slice(split), x + LABEL.paddingX + prefixWidth, baseline);
 }
@@ -179,15 +191,15 @@ function folderPath(scene: Scene, node: number): string {
 }
 
 /** Keep the nearest folders visible when a full path does not fit. */
-function fitFolderPath(context: CanvasRenderingContext2D, path: string, width: number): string {
-  if (context.measureText(path).width <= width) return path;
+function fitFolderPath(context: CanvasRenderingContext2D, font: string, path: string, width: number): string {
+  if (textWidth(context, font, path) <= width) return path;
   const parts = path.split("/");
   while (parts.length > 1) {
     parts.shift();
     const shortened = `…/${parts.join("/")}`;
-    if (context.measureText(shortened).width <= width) return shortened;
+    if (textWidth(context, font, shortened) <= width) return shortened;
   }
-  return fitText(context, `…/${parts[0] ?? ""}`, width);
+  return fitText(context, font, `…/${parts[0] ?? ""}`, width);
 }
 
 function drawTile(context: CanvasRenderingContext2D, scene: Scene, node: number): void {
@@ -212,12 +224,16 @@ function drawTileLabel(context: CanvasRenderingContext2D, scene: Scene, node: nu
   if (width < LABEL.widthMin || height < LABEL.heightMin) return;
   const [name, detail] = tileLabelLines(scene, node);
   context.fillStyle = scene.styles.inks[node] ?? scene.palette.contextText;
-  context.font = `${LABEL.nameSizePx}px ${scene.palette.fontSans}`;
-  const textWidth = width - 2 * LABEL.paddingX;
-  context.fillText(fitText(context, name, textWidth), x + LABEL.paddingX, y + LABEL.firstBaselineY);
+  const available = width - 2 * LABEL.paddingX;
+  const nameFont = `${LABEL.nameSizePx}px ${scene.palette.fontSans}`;
+  const fittedName = fitText(context, nameFont, name, available);
+  useFont(context, nameFont);
+  context.fillText(fittedName, x + LABEL.paddingX, y + LABEL.firstBaselineY);
   if (detail === "" || height < LABEL.secondLineHeightMin) return;
-  context.font = `${LABEL.numbersSizePx}px ${scene.palette.fontMono}`;
-  context.fillText(fitText(context, detail, textWidth), x + LABEL.paddingX, y + LABEL.secondBaselineY);
+  const detailFont = `${LABEL.numbersSizePx}px ${scene.palette.fontMono}`;
+  const fittedDetail = fitText(context, detailFont, detail, available);
+  useFont(context, detailFont);
+  context.fillText(fittedDetail, x + LABEL.paddingX, y + LABEL.secondBaselineY);
 }
 
 /** First line names the tile; the second carries its numbers. */
@@ -256,16 +272,69 @@ function drawHatch(context: CanvasRenderingContext2D, color: string, x: number, 
 
 const ELLIPSIS = "…";
 
-/** Longest prefix that fits, with an ellipsis; binary search keeps measureText calls logarithmic. */
-function fitText(context: CanvasRenderingContext2D, text: string, widthMax: number): string {
+/**
+ * Per context: the font last set, and text widths by font. Setting a font
+ * parses it, and a tile keeps its label from one redraw to the next, so
+ * both are done once rather than per label per frame. The fonts are system
+ * fonts, so no font arriving later changes a width.
+ */
+interface TextState {
+  font: string;
+  readonly widthsByFont: Map<string, Map<string, number>>;
+}
+
+const TEXT_STATES = new WeakMap<CanvasRenderingContext2D, TextState>();
+/** Labels times the prefixes fitText tries for them; a font's widths start over past this. */
+const TEXT_WIDTHS_MAX = 50_000;
+
+function textState(context: CanvasRenderingContext2D): TextState {
+  let state = TEXT_STATES.get(context);
+  if (state === undefined) {
+    state = { font: "", widthsByFont: new Map() };
+    TEXT_STATES.set(context, state);
+  }
+  return state;
+}
+
+/** Resizing a canvas resets its font, so each draw starts from not knowing it. */
+function forgetFont(context: CanvasRenderingContext2D): void {
+  textState(context).font = "";
+}
+
+function useFont(context: CanvasRenderingContext2D, font: string): void {
+  const state = textState(context);
+  if (state.font === font) return;
+  context.font = font;
+  state.font = font;
+}
+
+function textWidth(context: CanvasRenderingContext2D, font: string, text: string): number {
+  const { widthsByFont } = textState(context);
+  let widths = widthsByFont.get(font);
+  if (widths === undefined) {
+    widths = new Map();
+    widthsByFont.set(font, widths);
+  }
+  let width = widths.get(text);
+  if (width === undefined) {
+    useFont(context, font);
+    width = context.measureText(text).width;
+    if (widths.size >= TEXT_WIDTHS_MAX) widths.clear();
+    widths.set(text, width);
+  }
+  return width;
+}
+
+/** Longest prefix that fits, with an ellipsis; binary search keeps measurements logarithmic. */
+function fitText(context: CanvasRenderingContext2D, font: string, text: string, widthMax: number): string {
   if (widthMax <= 0) return "";
-  if (context.measureText(text).width <= widthMax) return text;
-  if (context.measureText(ELLIPSIS).width > widthMax) return "";
+  if (textWidth(context, font, text) <= widthMax) return text;
+  if (textWidth(context, font, ELLIPSIS) > widthMax) return "";
   let fits = 0;
   let tooLong = text.length;
   while (tooLong - fits > 1) {
     const middle = (fits + tooLong) >>> 1;
-    if (context.measureText(text.slice(0, middle) + ELLIPSIS).width <= widthMax) {
+    if (textWidth(context, font, text.slice(0, middle) + ELLIPSIS) <= widthMax) {
       fits = middle;
     } else {
       tooLong = middle;
@@ -281,6 +350,7 @@ function fitText(context: CanvasRenderingContext2D, text: string, widthMax: numb
  */
 export function drawHighlight(context: CanvasRenderingContext2D, scene: Scene, node: number, pixelRatio: number): void {
   const { layout, tree } = scene;
+  forgetFont(context);
   context.setTransform(1, 0, 0, 1, 0, 0);
   context.clearRect(0, 0, context.canvas.width, context.canvas.height);
   if (node < 0) return;

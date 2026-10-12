@@ -176,8 +176,9 @@ function decodeColumn<Column extends IntegerColumn>(
 ): Column {
   const values = expectArray(value, `tree.${name}`);
   assert(values.length === column.length, `tree.${name} must have one entry per node`);
+  const context = `tree.${name}[]`;
   for (let index = 0; index < values.length; index++) {
-    column[index] = expectInteger(values[index], minimum, maximum, `tree.${name}[]`);
+    column[index] = expectInteger(values[index], minimum, maximum, context);
   }
   return column;
 }
@@ -202,46 +203,49 @@ function checkNodeValues(tree: Tree, index: number): void {
   const fileCount = tree.fileCounts[index] ?? -1;
   const bytes = tree.bytes[index] ?? -1;
   if (kind === NodeKind.directory) {
-    assert(status === 0, `directory ${index} must not carry a status`);
-    assert(bytes === 0, `directory ${index} must not carry bytes`);
-    assert(additions === 0, `directory ${index} must not carry additions`);
-    assert(deletions === 0, `directory ${index} must not carry deletions`);
-    assert(fileCount === 0, `directory ${index} must not carry a file count`);
+    assert(status === 0, () => `directory ${index} must not carry a status`);
+    assert(bytes === 0, () => `directory ${index} must not carry bytes`);
+    assert(additions === 0, () => `directory ${index} must not carry additions`);
+    assert(deletions === 0, () => `directory ${index} must not carry deletions`);
+    assert(fileCount === 0, () => `directory ${index} must not carry a file count`);
   } else if (kind === NodeKind.file) {
-    assert(fileCount === 1, `file ${index} must count as one file`);
+    assert(fileCount === 1, () => `file ${index} must count as one file`);
     if (status === FileStatus.unchanged) {
-      assert(additions === 0, `unchanged file ${index} must have no additions`);
-      assert(deletions === 0, `unchanged file ${index} must have no deletions`);
+      assert(additions === 0, () => `unchanged file ${index} must have no additions`);
+      assert(deletions === 0, () => `unchanged file ${index} must have no deletions`);
     }
   } else {
-    assert(kind === NodeKind.collapsedDirectory || kind === NodeKind.rest, `node ${index} has an unknown kind`);
-    assert(status === FileStatus.unchanged, `context node ${index} must be unchanged`);
-    assert(additions === 0, `context node ${index} must have no additions`);
-    assert(deletions === 0, `context node ${index} must have no deletions`);
-    assert(fileCount >= 1, `context node ${index} must represent at least one file`);
+    assert(kind === NodeKind.collapsedDirectory || kind === NodeKind.rest, () => `node ${index} has an unknown kind`);
+    assert(status === FileStatus.unchanged, () => `context node ${index} must be unchanged`);
+    assert(additions === 0, () => `context node ${index} must have no additions`);
+    assert(deletions === 0, () => `context node ${index} must have no deletions`);
+    assert(fileCount >= 1, () => `context node ${index} must represent at least one file`);
   }
 }
 
 function checkParentsAndNames(tree: Tree): void {
-  // Names never contain "/", so "parent/name" is a unique key per sibling
-  // name. Rest nodes have empty names, so the same set also enforces at most
-  // one rest node per directory.
-  const siblingKeys = new Set<string>();
+  // Sibling names by parent. Rest nodes have empty names, so the same sets
+  // also enforce at most one rest node per directory.
+  const siblingNames = new Map<number, Set<string>>();
   for (let index = 1; index < tree.nodeCount; index++) {
     const parent = tree.parents[index] ?? -1;
     const name = tree.names[index] ?? "";
-    assert(parent >= 0, `node ${index} must have a parent`);
-    assert(parent < index, `node ${index} must come after its parent`);
-    assert(tree.kinds[parent] === NodeKind.directory, `parent of node ${index} must be a directory`);
+    assert(parent >= 0, () => `node ${index} must have a parent`);
+    assert(parent < index, () => `node ${index} must come after its parent`);
+    assert(tree.kinds[parent] === NodeKind.directory, () => `parent of node ${index} must be a directory`);
     if (tree.kinds[index] === NodeKind.rest) {
-      assert(name === "", `rest node ${index} must be unnamed`);
+      assert(name === "", () => `rest node ${index} must be unnamed`);
     } else {
-      assert(name !== "", `node ${index} must have a name`);
-      assert(!name.includes("/"), `name of node ${index} must not contain "/"`);
+      assert(name !== "", () => `node ${index} must have a name`);
+      assert(!name.includes("/"), () => `name of node ${index} must not contain "/"`);
     }
-    const key = `${parent}/${name}`;
-    assert(!siblingKeys.has(key), `node ${index} duplicates a sibling`);
-    siblingKeys.add(key);
+    let names = siblingNames.get(parent);
+    if (names === undefined) {
+      names = new Set();
+      siblingNames.set(parent, names);
+    }
+    assert(!names.has(name), () => `node ${index} duplicates a sibling`);
+    names.add(name);
   }
 }
 
@@ -252,7 +256,7 @@ function checkDirectoriesContainChanges(tree: Tree): void {
       changedBelow[index] = 1;
     }
     if (tree.kinds[index] === NodeKind.directory) {
-      assert((changedBelow[index] ?? 0) > 0, `directory ${index} must contain a changed file`);
+      assert((changedBelow[index] ?? 0) > 0, () => `directory ${index} must contain a changed file`);
     }
     const parent = tree.parents[index] ?? 0;
     changedBelow[parent] = (changedBelow[parent] ?? 0) + (changedBelow[index] ?? 0);
@@ -298,7 +302,7 @@ function expectArray(value: unknown, context: string): readonly unknown[] {
 }
 
 function expectString(value: unknown, context: string): string {
-  assert(typeof value === "string", `${context} must be a string`);
+  assert(typeof value === "string", () => `${context} must be a string`);
   return value;
 }
 
@@ -307,7 +311,9 @@ function expectBoolean(value: unknown, context: string): boolean {
   return value;
 }
 
+/** Called once per value of every tree column, so a valid value returns before any check builds its message. */
 function expectInteger(value: unknown, minimum: number, maximum: number, context: string): number {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= minimum && value <= maximum) return value;
   assert(typeof value === "number", `${context} must be a number`);
   assert(Number.isSafeInteger(value), `${context} must be an integer`);
   assert(value >= minimum, `${context} must be at least ${minimum}`);

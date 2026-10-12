@@ -959,37 +959,57 @@ input {
   font-size: var(--text-meta);
 }
 
-/* One grid for the whole list; rows are subgrids, so the number columns align across files. */
-.file-list {
+/*
+ * Both views render only the rows near the visible part (see
+ * virtual-rows.ts): each row is placed at its index times 32px, and the
+ * spacer after them holds the height of all of them, so the scrollbar
+ * covers the whole list. Rows are independent grids; their number columns
+ * line up through widths set per render, in ch of the mono font.
+ */
+.file-list,
+.file-tree {
+  position: relative;
   flex: 1 1 auto;
-  display: grid;
-  /* The first track includes the row's 8px left padding, which a subgrid places inside its edge tracks. */
-  grid-template-columns: 20px minmax(0, 1fr) auto auto;
-  align-content: start;
   min-height: 0;
-  margin: 0;
   padding: 0 8px 16px;
   overflow-y: auto;
-  list-style: none;
   scrollbar-width: thin;
   scrollbar-color: var(--line-2) transparent;
 }
 
-.file-list > li {
-  display: contents;
+.file-list::after,
+.file-tree::after {
+  content: "";
+  display: block;
+  height: var(--virtual-height, 0);
+}
+
+.file-list {
+  margin: 0;
+  list-style: none;
+}
+
+/* The insets match the container's padding; rows are 32px tall, as sidebar.ts places them. */
+.file-list > li,
+.tree-row {
+  position: absolute;
+  right: 8px;
+  left: 8px;
 }
 
 .file-row {
-  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: subgrid;
-  grid-template-rows: auto 2px;
+  /* The status letter's 8px is what the list's old shared grid left it, so paths start where they did. */
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
+  /* A fixed first track, as in the tree: 5 + 17 + 4 + 2 + 4 = 32px. */
+  grid-template-rows: 17px 2px;
   align-items: baseline;
   gap: 4px 8px;
   padding: 5px 8px 4px;
   border-radius: var(--radius-small);
   color: var(--fg-2);
   font-size: var(--text-control);
+  line-height: 17px;
   text-decoration: none;
 }
 
@@ -1010,6 +1030,18 @@ input {
 
 .file-row > .file-additions {
   grid-area: 1 / 3;
+}
+
+.file-row > .file-additions,
+.tree-row > .file-additions {
+  min-width: var(--additions-width, auto);
+  text-align: right;
+}
+
+.file-row > .file-deletions,
+.tree-row > .file-deletions {
+  min-width: var(--deletions-width, auto);
+  text-align: right;
 }
 
 .file-row > .file-deletions {
@@ -1114,30 +1146,13 @@ input {
   background: var(--status-deleted);
 }
 
-/*
- * The Tree view. Unlike the list, rows are independent grids: a shared
- * subgrid over thousands of rows made every re-render lay out all of them.
- * Number columns line up through widths set per render (in ch of the mono
- * font), and off-screen rows skip layout entirely. Rows keep the list's
- * height, so switching views does not jump.
- */
-.file-tree {
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: 0 8px 16px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-2) transparent;
-}
-
+/* The Tree view. Rows are as tall as the list's, so switching views does not jump. */
 .tree-row {
   --tree-indent: 12px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   /* A fixed first track: baseline-aligning 12px names with 11px numbers grew an auto one to 17.5px. */
   grid-template-rows: 17px 2px;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 32px;
   align-items: baseline;
   gap: 4px 8px;
   padding: 5px 8px 4px;
@@ -1245,16 +1260,6 @@ input {
 
 .tree-row .churn-bar {
   grid-column: 2 / -1;
-}
-
-.tree-row .file-additions {
-  min-width: var(--tree-additions-width, auto);
-  text-align: right;
-}
-
-.tree-row .file-deletions {
-  min-width: var(--tree-deletions-width, auto);
-  text-align: right;
 }
 
 .tree-row > .tree-label,
