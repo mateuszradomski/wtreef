@@ -1,6 +1,8 @@
 package main
 
 import (
+	"io"
+	"net"
 	"strings"
 	"testing"
 )
@@ -38,5 +40,50 @@ func TestParseOptionsRejectsInvalidConfiguration(t *testing.T) {
 				t.Fatalf("error = %v, want it to mention %q", err, testCase.message)
 			}
 		})
+	}
+}
+
+func TestParseLocalOptions(t *testing.T) {
+	parsed, err := parseLocalOptions(nil, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.listenAddress != "127.0.0.1:3753" || parsed.listenExplicit || parsed.directory != "." || !parsed.open || parsed.base != "" {
+		t.Fatalf("defaults = %+v", parsed)
+	}
+	parsed, err = parseLocalOptions([]string{"-listen", "127.0.0.1:4000", "-base", "origin/develop", "-open=false", "../repo"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.listenAddress != "127.0.0.1:4000" || !parsed.listenExplicit || parsed.directory != "../repo" || parsed.open || parsed.base != "origin/develop" {
+		t.Fatalf("parsed = %+v", parsed)
+	}
+	if _, err := parseLocalOptions([]string{"a", "b"}, io.Discard); err == nil || !strings.Contains(err.Error(), "at most one directory") {
+		t.Fatalf("two directories: error = %v", err)
+	}
+}
+
+func TestLocalAddresses(t *testing.T) {
+	testCases := []struct {
+		address string
+		url     string
+		hosts   string
+	}{
+		{"127.0.0.1:3753", "http://localhost:3753/", "localhost 127.0.0.1 ::1"},
+		{"[::1]:3753", "http://localhost:3753/", "localhost 127.0.0.1 ::1"},
+		{"0.0.0.0:3753", "http://localhost:3753/", ""},
+		{"192.168.1.5:3753", "http://192.168.1.5:3753/", "192.168.1.5 localhost 127.0.0.1 ::1"},
+	}
+	for _, testCase := range testCases {
+		address, err := net.ResolveTCPAddr("tcp", testCase.address)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if url := pageURL(address); url != testCase.url {
+			t.Errorf("pageURL(%s) = %s, want %s", testCase.address, url, testCase.url)
+		}
+		if hosts := strings.Join(allowedHosts(address), " "); hosts != testCase.hosts {
+			t.Errorf("allowedHosts(%s) = %q, want %q", testCase.address, hosts, testCase.hosts)
+		}
 	}
 }

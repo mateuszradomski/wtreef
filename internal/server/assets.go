@@ -7,16 +7,19 @@ import (
 	"encoding/hex"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"maps"
 	"net/http"
 	"path"
 	"slices"
 	"strings"
+	"sync/atomic"
 )
 
 const (
 	indexName          = "index.html"
 	versionPlaceholder = "{{VERSION}}"
+	modePlaceholder    = "{{MODE}}"
 	versionHexLength   = 12
 	assetFilesMax      = 256
 	assetBytesMax      = 64 << 20
@@ -27,6 +30,36 @@ const (
 )
 
 var ErrIndexMissing = errors.New("assets lack index.html; build the frontend with `make web`")
+
+// Mode tells the page which app to be. It is written into index.html.
+type Mode string
+
+const (
+	ModeWeb   Mode = "web"
+	ModeLocal Mode = "local"
+)
+
+// assetServer serves the frontend for both modes.
+type assetServer struct {
+	files    fs.FS
+	reload   bool
+	mode     Mode
+	snapshot atomic.Pointer[assetSnapshot]
+	logger   *slog.Logger
+}
+
+func newAssetServer(files fs.FS, reload bool, mode Mode, logger *slog.Logger) (*assetServer, error) {
+	assert(files != nil, "assets are required")
+	assert(mode == ModeWeb || mode == ModeLocal, "mode is web or local")
+	snapshot, err := loadAssetSnapshot(files, mode)
+	if err != nil {
+		return nil, err
+	}
+	assert(len(snapshot.indexHTML) > 0, "a loaded snapshot has an index page")
+	assets := &assetServer{files: files, reload: reload, mode: mode, logger: logger}
+	assets.snapshot.Store(snapshot)
+	return assets, nil
+}
 
 // assetSnapshot is the whole frontend, read once and served from memory.
 type assetSnapshot struct {
@@ -61,11 +94,11 @@ var contentTypeByExtension = map[string]string{
 
 var compressibleExtensions = []string{".js", ".mjs", ".css", ".map", ".json", ".html", ".txt", ".svg"}
 
-func (server *Server) servePage(writer http.ResponseWriter) {
-	if server.reloadAssets {
-		server.reloadAssetSnapshot()
+func (assets *assetServer) servePage(writer http.ResponseWriter) {
+	if assets.reload {
+		assets.reloadSnapshot()
 	}
-	snapshot := server.assets.Load()
+	snapshot := assets.snapshot.Load()
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 	writer.Header().Set("Cache-Control", pageCacheControl)
 	writeBody(writer, http.StatusOK, snapshot.indexHTML)
@@ -73,8 +106,8 @@ func (server *Server) servePage(writer http.ResponseWriter) {
 
 // serveAsset looks names up in the snapshot map only, so a request can
 // never reach the file system or traverse out of the asset directory.
-func (server *Server) serveAsset(writer http.ResponseWriter, request *http.Request, name string) {
-	snapshot := server.assets.Load()
+func (assets *assetServer) serveAsset(writer http.ResponseWriter, request *http.Request, name string) {
+	snapshot := assets.snapshot.Load()
 	file, exists := snapshot.files[name]
 	if !exists {
 		serveNotFound(writer, false)
@@ -93,20 +126,20 @@ func (server *Server) serveAsset(writer http.ResponseWriter, request *http.Reque
 	writeBody(writer, http.StatusOK, body)
 }
 
-// reloadAssetSnapshot keeps serving the previous snapshot when the new one
+// reloadSnapshot keeps serving the previous snapshot when the new one
 // cannot be read, e.g. halfway through a frontend rebuild.
-func (server *Server) reloadAssetSnapshot() {
-	snapshot, err := loadAssetSnapshot(server.assetFiles)
+func (assets *assetServer) reloadSnapshot() {
+	snapshot, err := loadAssetSnapshot(assets.files, assets.mode)
 	if err != nil {
-		server.logger.Warn("asset reload failed, serving previous assets", "error", err)
+		assets.logger.Warn("asset reload failed, serving previous assets", "error", err)
 		return
 	}
-	server.assets.Store(snapshot)
+	assets.snapshot.Store(snapshot)
 }
 
 // loadAssetSnapshot reads the top level of files. Dotfiles, directories,
 // and symlinks are skipped.
-func loadAssetSnapshot(files fs.FS) (*assetSnapshot, error) {
+func loadAssetSnapshot(files fs.FS, mode Mode) (*assetSnapshot, error) {
 	entries, err := fs.ReadDir(files, ".")
 	if err != nil {
 		return nil, err
@@ -138,8 +171,10 @@ func loadAssetSnapshot(files fs.FS) (*assetSnapshot, error) {
 	}
 	snapshot.version = assetVersion(snapshot.files)
 	snapshot.indexHTML = bytes.ReplaceAll(indexTemplate, []byte(versionPlaceholder), []byte(snapshot.version))
+	snapshot.indexHTML = bytes.ReplaceAll(snapshot.indexHTML, []byte(modePlaceholder), []byte(mode))
 	assert(len(snapshot.version) == versionHexLength, "version is a short hash")
-	assert(!bytes.Contains(snapshot.indexHTML, []byte(versionPlaceholder)), "every placeholder is replaced")
+	assert(!bytes.Contains(snapshot.indexHTML, []byte(versionPlaceholder)), "every version placeholder is replaced")
+	assert(!bytes.Contains(snapshot.indexHTML, []byte(modePlaceholder)), "every mode placeholder is replaced")
 	return snapshot, nil
 }
 

@@ -28,13 +28,14 @@ const HIDE: NodeMenuItem = { action: NodeAction.hide, label: "Hide", shortcut: H
 const COPY_PATH: NodeMenuItem = { action: NodeAction.copyPath, label: "Copy path", shortcut: "" };
 
 /**
- * The menu for `node`: a changed file opens its diff, a folder zooms in,
- * and unchanged context (a file or a collapsed folder) can only be hidden.
- * The root and rest nodes have no path, so they get no menu.
+ * The menu for `node`: a changed file opens its diff (when there is one to
+ * open: a local branch has none on GitHub), a folder zooms in, and unchanged
+ * context (a file or a collapsed folder) can only be hidden. The root and
+ * rest nodes have no path, so they get no menu.
  */
-export function nodeMenuItems(tree: Tree, node: number): readonly NodeMenuItem[] {
+export function nodeMenuItems(tree: Tree, node: number, hasDiffs: boolean = true): readonly NodeMenuItem[] {
   if (!isHideableNode(tree, node)) return [];
-  if (isChangedFile(tree, node)) return [OPEN_DIFF, HIDE_FILE, COPY_PATH];
+  if (isChangedFile(tree, node)) return hasDiffs ? [OPEN_DIFF, HIDE_FILE, COPY_PATH] : [HIDE_FILE, COPY_PATH];
   if (tree.kinds[node] === NodeKind.directory) return [ZOOM, HIDE_FOLDER, COPY_PATH];
   assert(tree.kinds[node] === NodeKind.file || tree.kinds[node] === NodeKind.collapsedDirectory, "what is left is context");
   return [HIDE, COPY_PATH];

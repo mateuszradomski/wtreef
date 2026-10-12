@@ -22,6 +22,7 @@ export const API_ERROR_CODES = [
   "too_many_requests",
   "upstream_error",
   "github_rate_limited",
+  "local_error",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
@@ -31,6 +32,7 @@ const HTTP_STATUS_BY_ERROR_CODE: Readonly<Record<ApiErrorCode, number>> = {
   too_many_requests: 429,
   upstream_error: 502,
   github_rate_limited: 503,
+  local_error: 500,
 };
 
 export interface PullRequest {
@@ -50,6 +52,29 @@ export interface PullRequest {
   readonly changedFiles: number;
 }
 
+/** A local branch: the working tree against where it left its base (GET /api/local). */
+export interface Branch {
+  /** The checkout's directory name. */
+  readonly repo: string;
+  /** "" when HEAD is detached. */
+  readonly headRef: string;
+  readonly baseRef: string;
+  /** The merge base of baseRef and HEAD. */
+  readonly baseSha: string;
+  readonly headSha: string;
+  readonly uncommitted: boolean;
+  readonly additions: number;
+  readonly deletions: number;
+  readonly changedFiles: number;
+}
+
+/** What the header totals describe: a pull request or a branch, as a whole. */
+export interface ChangeSummary {
+  readonly additions: number;
+  readonly deletions: number;
+  readonly changedFiles: number;
+}
+
 /** Struct of arrays; node `i` is the `i`-th element of every column. */
 export interface Tree {
   readonly nodeCount: number;
@@ -64,12 +89,26 @@ export interface Tree {
 }
 
 export interface PullRequestData {
+  readonly kind: "pullRequest";
   readonly pullRequest: PullRequest;
   readonly tree: Tree;
   readonly truncatedFiles: boolean;
   readonly truncatedTree: boolean;
   readonly fetchedAtMs: number;
 }
+
+export interface BranchData {
+  readonly kind: "branch";
+  readonly branch: Branch;
+  readonly tree: Tree;
+  /** git lists everything, so nothing is ever missing. */
+  readonly truncatedFiles: false;
+  readonly truncatedTree: false;
+  readonly fetchedAtMs: number;
+}
+
+/** Everything the treemap view can show. */
+export type TreemapData = PullRequestData | BranchData;
 
 export interface ApiError {
   readonly code: ApiErrorCode;
@@ -95,11 +134,52 @@ export function decodePullRequestData(json: unknown): PullRequestData {
   const fetchedAtMs = Date.parse(fetchedAtText);
   assert(Number.isFinite(fetchedAtMs), "fetchedAt must be a timestamp");
   return {
+    kind: "pullRequest",
     pullRequest: decodePullRequest(object["pullRequest"]),
     tree: decodeTree(object["tree"]),
     truncatedFiles: expectBoolean(truncated["files"], "truncated.files"),
     truncatedTree: expectBoolean(truncated["tree"], "truncated.tree"),
     fetchedAtMs,
+  };
+}
+
+export function decodeBranchData(json: unknown): BranchData {
+  const object = expectObject(json, "response");
+  assert(object["version"] === WIRE_FORMAT_VERSION, `response.version must be ${WIRE_FORMAT_VERSION}`);
+  const truncated = expectObject(object["truncated"], "truncated");
+  assert(truncated["files"] === false && truncated["tree"] === false, "a local branch is never truncated");
+  const fetchedAtMs = Date.parse(expectString(object["fetchedAt"], "fetchedAt"));
+  assert(Number.isFinite(fetchedAtMs), "fetchedAt must be a timestamp");
+  return {
+    kind: "branch",
+    branch: decodeBranch(object["branch"]),
+    tree: decodeTree(object["tree"]),
+    truncatedFiles: false,
+    truncatedTree: false,
+    fetchedAtMs,
+  };
+}
+
+function decodeBranch(value: unknown): Branch {
+  const object = expectObject(value, "branch");
+  const repo = expectString(object["repo"], "branch.repo");
+  const baseRef = expectString(object["baseRef"], "branch.baseRef");
+  const baseSha = expectString(object["baseSha"], "branch.baseSha");
+  const headSha = expectString(object["headSha"], "branch.headSha");
+  assert(repo !== "", "branch.repo must not be empty");
+  assert(baseRef !== "", "branch.baseRef must not be empty");
+  assert(SHA_PATTERN.test(baseSha), "branch.baseSha must be a commit hash");
+  assert(SHA_PATTERN.test(headSha), "branch.headSha must be a commit hash");
+  return {
+    repo,
+    headRef: expectString(object["headRef"], "branch.headRef"),
+    baseRef,
+    baseSha,
+    headSha,
+    uncommitted: expectBoolean(object["uncommitted"], "branch.uncommitted"),
+    additions: expectInteger(object["additions"], 0, Number.MAX_SAFE_INTEGER, "branch.additions"),
+    deletions: expectInteger(object["deletions"], 0, Number.MAX_SAFE_INTEGER, "branch.deletions"),
+    changedFiles: expectInteger(object["changedFiles"], 0, Number.MAX_SAFE_INTEGER, "branch.changedFiles"),
   };
 }
 

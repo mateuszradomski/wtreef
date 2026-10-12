@@ -3,7 +3,7 @@
 // ever goes through textContent.
 
 import { setTooltip } from "./control-tooltip.ts";
-import type { PullRequest, PullRequestData } from "./decode.ts";
+import type { Branch, PullRequest, TreemapData } from "./decode.ts";
 import { append, element, link } from "./dom.ts";
 import { formatAdditions, formatCount, formatDeletions } from "./format.ts";
 import type { HeaderTotals } from "./totals.ts";
@@ -19,22 +19,10 @@ export interface Header {
 }
 
 /** The totals start empty; syncHeaderTotals fills them. */
-export function createHeader(data: PullRequestData): Header {
-  const { pullRequest } = data;
+export function createHeader(data: TreemapData): Header {
   const root = element("header", "pr-header");
   const brand = link("brand", "/", "wtreef", false);
-
-  const identity = element("div", "pr-identity");
-  const repository = element("span", "pr-repo", `${pullRequest.owner}/${pullRequest.repo}`);
-  const number = element("span", "pr-number", `#${pullRequest.number}`);
-  const title = element("span", "pr-title", pullRequest.title);
-  // The title is cut to fit the bar; the tooltip has all of it.
-  setTooltip(title, pullRequest.title);
-  const state = element("span", `pr-state pr-state-${pullRequest.state}`, pullRequest.state);
-  setTooltip(state, describeState(pullRequest));
-  // Focusable so keyboard users can read what it means, as hover readers can.
-  state.tabIndex = 0;
-  append(identity, repository, number, title, state);
+  const identity = data.kind === "pullRequest" ? createPullRequestIdentity(data.pullRequest) : createBranchIdentity(data.branch);
 
   const stats = element("div", "pr-stats mono");
   const filteredMark = element("span", "pr-filtered-mark");
@@ -46,13 +34,55 @@ export function createHeader(data: PullRequestData): Header {
   const files = element("span", "pr-files");
   const totals = append(element("span", "pr-totals"), filteredMark, append(element("span", "pr-churn"), additions, " ", deletions), files);
   totals.tabIndex = 0;
-  const github = link("pr-github", pullRequest.url, "GitHub ↗", true);
-  github.setAttribute("aria-label", "Open the pull request on GitHub");
-  setTooltip(github, "Open this pull request on GitHub, in a new tab.");
-  append(stats, totals, github);
+  stats.append(totals);
+  if (data.kind === "pullRequest") {
+    const github = link("pr-github", data.pullRequest.url, "GitHub ↗", true);
+    github.setAttribute("aria-label", "Open the pull request on GitHub");
+    setTooltip(github, "Open this pull request on GitHub, in a new tab.");
+    stats.append(github);
+  }
 
   append(root, brand, identity, stats);
   return { root, totals, filteredMark, additions, deletions, files };
+}
+
+function createPullRequestIdentity(pullRequest: PullRequest): HTMLElement {
+  const identity = element("div", "pr-identity");
+  const repository = element("span", "pr-repo", `${pullRequest.owner}/${pullRequest.repo}`);
+  const number = element("span", "pr-number", `#${pullRequest.number}`);
+  const title = element("span", "pr-title", pullRequest.title);
+  // The title is cut to fit the bar; the tooltip has all of it.
+  setTooltip(title, pullRequest.title);
+  const state = element("span", `pr-state pr-state-${pullRequest.state}`, pullRequest.state);
+  setTooltip(state, describeState(pullRequest));
+  // Focusable so keyboard users can read what it means, as hover readers can.
+  state.tabIndex = 0;
+  return append(identity, repository, number, title, state);
+}
+
+const SHORT_SHA_LENGTH = 7;
+
+/** "repo  branch  vs origin/main  [uncommitted]". */
+function createBranchIdentity(branch: Branch): HTMLElement {
+  const identity = element("div", "pr-identity");
+  const repository = element("span", "pr-repo", branch.repo);
+  const headLabel = branch.headRef === "" ? `HEAD ${branch.headSha.slice(0, SHORT_SHA_LENGTH)}` : branch.headRef;
+  const head = element("span", "pr-title mono", headLabel);
+  setTooltip(head, branch.headRef === "" ? "HEAD is detached: no branch is checked out." : headLabel);
+  const base = element("span", "pr-number", `vs ${branch.baseRef}`);
+  setTooltip(
+    base,
+    `Compared with commit ${branch.baseSha.slice(0, SHORT_SHA_LENGTH)}, where this branch left ${branch.baseRef}. Start wtreef with -base to compare with something else.`,
+  );
+  base.tabIndex = 0;
+  append(identity, repository, head, base);
+  if (branch.uncommitted) {
+    const state = element("span", "pr-state pr-state-uncommitted", "uncommitted");
+    setTooltip(state, "Includes work not committed yet: staged, unstaged and new files. Reload the page to see the latest.");
+    state.tabIndex = 0;
+    identity.append(state);
+  }
+  return identity;
 }
 
 export function syncHeaderTotals(header: Header, totals: HeaderTotals): void {
@@ -70,7 +100,8 @@ function describeState(pullRequest: PullRequest): string {
 }
 
 /** Null when GitHub gave us everything; otherwise says what is missing and why. */
-export function createTruncationBanner(data: PullRequestData, shownChangedFiles: number): HTMLElement | null {
+export function createTruncationBanner(data: TreemapData, shownChangedFiles: number): HTMLElement | null {
+  if (data.kind === "branch") return null;
   const notes: string[] = [];
   if (data.truncatedFiles) {
     const total = data.pullRequest.changedFiles;

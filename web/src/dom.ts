@@ -12,8 +12,13 @@ export function element<Tag extends keyof HTMLElementTagNameMap>(
   return created;
 }
 
+/** With `href` "" the anchor goes nowhere but stays a Tab stop, like the links it stands in for. */
 export function link(className: string, href: string, text: string, opensNewTab: boolean): HTMLAnchorElement {
   const anchor = element("a", className, text);
+  if (href === "") {
+    anchor.tabIndex = 0;
+    return anchor;
+  }
   anchor.href = href;
   if (opensNewTab) {
     anchor.target = "_blank";

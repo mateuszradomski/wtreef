@@ -411,10 +411,15 @@ function createFileRow(node: number, input: ChangedFilesInput): HTMLAnchorElemen
 
   const additions = tree.additions[node] ?? 0;
   const deletions = tree.deletions[node] ?? 0;
-  row.setAttribute("aria-label", `${statusLabel(status)} ${path}, ${additions} added, ${deletions} deleted. Opens the diff on GitHub.`);
+  row.setAttribute("aria-label", `${statusLabel(status)} ${path}, ${additions} added, ${deletions} deleted.${opensDiff(input, node)}`);
   const counts = createLineCounts(additions, deletions);
   append(row, createStatusLetter(tree, node), pathElement, createHideControl(tree.names[node] ?? "", false), ...counts, createChurnBar(additions, deletions, index.churnMax));
   return row;
+}
+
+/** Rows of a local branch link nowhere, so they promise nothing. */
+function opensDiff(input: ChangedFilesInput, node: number): string {
+  return diffUrl(input.diffUrls, node) === "" ? "" : " Opens the diff on GitHub.";
 }
 
 function createStatusLetter(tree: Tree, node: number): HTMLElement {
@@ -539,7 +544,7 @@ function createTreeFileRow(input: ChangedFilesInput, fileTree: FileTree, index: 
   const additions = tree.additions[node] ?? 0;
   const deletions = tree.deletions[node] ?? 0;
   const status = statusLabel(statusOf(tree.statuses[node] ?? 0));
-  row.setAttribute("aria-label", `${status} ${tree.names[node] ?? ""}, ${additions} added, ${deletions} deleted. Opens the diff on GitHub.`);
+  row.setAttribute("aria-label", `${status} ${tree.names[node] ?? ""}, ${additions} added, ${deletions} deleted.${opensDiff(input, node)}`);
   const label = append(element("span", "tree-label"), createStatusLetter(tree, node), name);
   const counts = createLineCounts(additions, deletions);
   append(row, label, createHideControl(tree.names[node] ?? "", false), ...counts, createChurnBar(additions, deletions, input.index.churnMax));

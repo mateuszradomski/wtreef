@@ -42,6 +42,17 @@ export function renderLoading(root: HTMLElement, reference: PullRequestReference
   root.replaceChildren(page);
 }
 
+export function renderBranchLoading(root: HTMLElement): void {
+  document.title = "wtreef";
+  const progress = element("div", "loading-bar");
+  progress.setAttribute("role", "progressbar");
+  progress.setAttribute("aria-label", "Loading");
+  progress.append(element("span", "loading-bar-fill"));
+  const page = statePage("Reading your branch…", progress);
+  page.setAttribute("aria-busy", "true");
+  root.replaceChildren(page);
+}
+
 export function renderNotFoundPage(root: HTMLElement): void {
   document.title = "Not found · wtreef";
   const detail = element(
@@ -65,8 +76,8 @@ interface ErrorCopy {
 
 export type FetchFailure = Exclude<FetchResult, { readonly kind: "loaded" }>;
 
-export function describeFailure(result: FetchFailure, reference: PullRequestReference): ErrorCopy {
-  const label = referenceLabel(reference);
+/** `label` names what failed to load, e.g. "owner/repo#123". */
+export function describeFailure(result: FetchFailure, label: string): ErrorCopy {
   if (result.kind === "apiError") return describeApiError(result.error, label);
   if (result.kind === "unreachable") {
     return { title: "Couldn't reach wtreef", detail: "Check your connection, then try again.", retryable: true, retryAfterSeconds: null };
@@ -118,14 +129,30 @@ function describeApiError(error: ApiError, label: string): ErrorCopy {
         retryable: true,
         retryAfterSeconds: null,
       };
+    case "local_error":
+      // Only the local server sends this, and its message is git's own, for the person who ran it.
+      return { title: "Couldn't read the repository", detail: error.message, retryable: true, retryAfterSeconds: null };
     default:
       return unreachable(error.code, "unknown API error code");
   }
 }
 
+/** The local server has no pull request to link to; the terminal running it is the place to look. */
+export function renderBranchFailure(root: HTMLElement, result: FetchFailure, onRetry: () => void): void {
+  const copy: ErrorCopy =
+    result.kind === "unreachable"
+      ? { title: "Couldn't reach wtreef", detail: "Is wtreef still running in your terminal? Start it again, then try again.", retryable: true, retryAfterSeconds: null }
+      : describeFailure(result, "the branch");
+  document.title = `${copy.title} · wtreef`;
+  const detail = element("p", "state-detail", copy.detail);
+  const page = statePage(copy.title, detail, actions(createRetryButton(copy.retryAfterSeconds, onRetry)));
+  page.setAttribute("role", "alert");
+  root.replaceChildren(page);
+}
+
 /** Renders the failure and, when retrying can help, a Retry button that counts down Retry-After first. */
 export function renderFailure(root: HTMLElement, result: FetchFailure, reference: PullRequestReference, onRetry: () => void): void {
-  const copy = describeFailure(result, reference);
+  const copy = describeFailure(result, referenceLabel(reference));
   document.title = `${copy.title} · wtreef`;
   const buttons: HTMLElement[] = [];
   if (copy.retryable) buttons.push(createRetryButton(copy.retryAfterSeconds, onRetry));

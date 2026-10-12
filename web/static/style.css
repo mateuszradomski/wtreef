@@ -281,6 +281,10 @@ input {
   color: var(--status-deleted-ink);
 }
 
+.pr-state-uncommitted {
+  color: var(--status-modified-ink);
+}
+
 .pr-stats {
   flex: none;
   display: flex;

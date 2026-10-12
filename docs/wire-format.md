@@ -3,7 +3,16 @@
 This is the contract between the Go server and the browser client. Both sides
 assert the invariants listed here; a violation is a bug, not a recoverable error.
 
-## Routes
+## Modes
+
+One binary serves the page in two modes. `index.html` carries
+`<meta name="wtreef-mode" content="{{MODE}}">`; the server replaces
+`{{MODE}}` with `web` or `local`, and the client picks its app from it.
+
+- **web** (`wtreef serve`): the routes below, pull requests from GitHub.
+- **local** (`wtreef [directory]`): see [Local mode](#local-mode).
+
+## Routes (web)
 
 | Route                                   | Response                                   |
 |-----------------------------------------|--------------------------------------------|
@@ -136,7 +145,7 @@ So the node count is bounded by `changedFiles + expandedDirectories × 34`.
   sizing by bytes must give changed files a non-zero estimated area or they
   disappear.
 
-### Error responses
+### Error responses (both modes)
 
 All errors are JSON: `{ "error": "<code>", "message": "<human readable>" }`.
 
@@ -147,3 +156,48 @@ All errors are JSON: `{ "error": "<code>", "message": "<human readable>" }`.
 | 429    | `too_many_requests`   | per-client rate limit hit; `Retry-After` header is set       |
 | 502    | `upstream_error`      | GitHub failed or returned something unexpected               |
 | 503    | `github_rate_limited` | the server's GitHub token is out of budget; `Retry-After` set |
+| 500    | `local_error`         | local mode only: git failed; `message` is git's error, for the person who ran wtreef |
+
+## Local mode
+
+| Route            | Response                                    |
+|------------------|---------------------------------------------|
+| `GET /`          | `index.html` (treemap of the branch)        |
+| `GET /assets/…`  | as in web mode                              |
+| `GET /api/local` | JSON, see below; `Cache-Control: no-store`  |
+| `GET /healthz`   | `200 ok`                                    |
+| anything else    | `404`                                       |
+
+Requests whose `Host` is not a loopback name (`localhost`, `127.0.0.1`,
+`::1`) get `403`, so a web page cannot reach the server by pointing its own
+host name at 127.0.0.1 (DNS rebinding). Started with `-listen` on another
+address, that address is allowed too; on `0.0.0.0` any host is.
+
+### `GET /api/local`
+
+Every request reads the checkout again; there is no cache.
+
+```jsonc
+{
+  "version": 1,
+  "branch": {
+    "repo": "wtreef",           // the checkout's directory name
+    "headRef": "local-mode",    // "" when HEAD is detached
+    "baseRef": "origin/main",   // -base, else origin/HEAD, origin/main, origin/master, main, master
+    "baseSha": "…",             // merge base of baseRef and HEAD (40 or 64 hex)
+    "headSha": "…",
+    "uncommitted": true,        // the working tree differs from HEAD, untracked files included
+    "additions": 120,
+    "deletions": 14,
+    "changedFiles": 9
+  },
+  "tree": { … },                              // exactly as in web mode
+  "truncated": { "files": false, "tree": false },  // always false
+  "fetchedAt": "2026-10-12T13:00:00Z"
+}
+```
+
+The changes are `git diff -M <merge base>` against the working tree (staged
+and unstaged alike) plus untracked, non-ignored files as added. The tree is
+the index plus those untracked files, with `bytes` taken from the files on
+disk now; files deleted from disk are absent, and submodules weigh `0`.

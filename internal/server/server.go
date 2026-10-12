@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"wtreef/internal/cache"
@@ -66,9 +65,7 @@ type Server struct {
 	responses      *cache.ResponseCache
 	responseFlight *cache.Group[cache.ResponseEntry]
 	treeFlight     *cache.Group[pullrequest.Tree]
-	assetFiles     fs.FS
-	reloadAssets   bool
-	assets         atomic.Pointer[assetSnapshot]
+	assets         *assetServer
 	limiter        *clientLimiter
 	clientIPHeader string
 	logger         *slog.Logger
@@ -78,27 +75,22 @@ func New(config Config) (*Server, error) {
 	assert(config.GitHub != nil, "GitHub client is required")
 	assert(config.Trees != nil, "tree store is required")
 	assert(config.Responses != nil, "response cache is required")
-	assert(config.Assets != nil, "assets are required")
 	assert(config.Logger != nil, "logger is required")
-	snapshot, err := loadAssetSnapshot(config.Assets)
+	assets, err := newAssetServer(config.Assets, config.ReloadAssets, ModeWeb, config.Logger)
 	if err != nil {
 		return nil, err
 	}
-	assert(len(snapshot.indexHTML) > 0, "a loaded snapshot has an index page")
-	server := &Server{
+	return &Server{
 		github:         config.GitHub,
 		trees:          config.Trees,
 		responses:      config.Responses,
 		responseFlight: cache.NewGroup[cache.ResponseEntry](),
 		treeFlight:     cache.NewGroup[pullrequest.Tree](),
-		assetFiles:     config.Assets,
-		reloadAssets:   config.ReloadAssets,
+		assets:         assets,
 		limiter:        newClientLimiter(config.Limits),
 		clientIPHeader: config.ClientIPHeader,
 		logger:         config.Logger,
-	}
-	server.assets.Store(snapshot)
-	return server, nil
+	}, nil
 }
 
 // NewHTTPServer sets every timeout and size limit explicitly instead of
@@ -132,13 +124,13 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 	case isAPI:
 		server.serveAPI(writer, request, path)
 	case path == "/":
-		server.servePage(writer)
+		server.assets.servePage(writer)
 	case path == healthPath:
 		serveHealth(writer)
 	case strings.HasPrefix(path, assetsPrefix):
-		server.serveAsset(writer, request, strings.TrimPrefix(path, assetsPrefix))
+		server.assets.serveAsset(writer, request, strings.TrimPrefix(path, assetsPrefix))
 	case isPullRequestPagePath(path):
-		server.servePage(writer)
+		server.assets.servePage(writer)
 	default:
 		serveNotFound(writer, false)
 	}

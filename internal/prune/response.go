@@ -67,11 +67,60 @@ func NewResponse(pull pullrequest.PullRequest, tree pullrequest.Tree, fetchedAt 
 	}
 }
 
-// Marshal encodes the response as JSON. HTML escaping is requested
-// explicitly so the body stays inert if anything ever renders it as HTML.
+// BranchResponse is the 200 body of GET /api/local: the same tree, around
+// a local branch instead of a pull request.
+type BranchResponse struct {
+	Version   int               `json:"version"`
+	Branch    ResponseBranch    `json:"branch"`
+	Tree      Nodes             `json:"tree"`
+	Truncated ResponseTruncated `json:"truncated"`
+	FetchedAt string            `json:"fetchedAt"`
+}
+
+type ResponseBranch struct {
+	Repo        string `json:"repo"`
+	HeadRef     string `json:"headRef"`
+	BaseRef     string `json:"baseRef"`
+	BaseSHA     string `json:"baseSha"`
+	HeadSHA     string `json:"headSha"`
+	Uncommitted bool   `json:"uncommitted"`
+	Additions   int64  `json:"additions"`
+	Deletions   int64  `json:"deletions"`
+	// ChangedFiles is filled in by NewBranchResponse.
+	ChangedFiles int64 `json:"changedFiles"`
+}
+
+// NewBranchResponse never truncates: git lists everything.
+func NewBranchResponse(
+	branch ResponseBranch, tree pullrequest.Tree, files []pullrequest.ChangedFile, fetchedAt time.Time,
+) BranchResponse {
+	assert(!fetchedAt.IsZero(), "fetch time is set")
+	assert(!tree.Truncated(), "local trees are complete")
+	branch.ChangedFiles = int64(len(files))
+	return BranchResponse{
+		Version:   WireFormatVersion,
+		Branch:    branch,
+		Tree:      Build(tree, files),
+		FetchedAt: fetchedAt.UTC().Truncate(time.Second).Format(time.RFC3339),
+	}
+}
+
+// Marshal encodes the response as JSON.
 func Marshal(response Response) []byte {
 	assert(response.Version == WireFormatVersion, "response comes from NewResponse")
 	assert(len(response.Tree.Names) >= 1, "tree has a root")
+	return encode(response)
+}
+
+func MarshalBranch(response BranchResponse) []byte {
+	assert(response.Version == WireFormatVersion, "response comes from NewBranchResponse")
+	assert(len(response.Tree.Names) >= 1, "tree has a root")
+	return encode(response)
+}
+
+// encode requests HTML escaping explicitly so the body stays inert if
+// anything ever renders it as HTML.
+func encode(response any) []byte {
 	buffer := bytes.Buffer{}
 	encoder := json.NewEncoder(&buffer)
 	encoder.SetEscapeHTML(true)

@@ -251,16 +251,16 @@ func TestIndexGetsContentVersionAndAssetsAreImmutable(t *testing.T) {
 
 func TestVersionChangesWithAssetContents(t *testing.T) {
 	assets := testAssets()
-	first, err := loadAssetSnapshot(assets)
+	first, err := loadAssetSnapshot(assets, ModeWeb)
 	check(t, err)
 	assets["app.js"] = &fstest.MapFile{Data: []byte("console.log(2)")}
-	second, err := loadAssetSnapshot(assets)
+	second, err := loadAssetSnapshot(assets, ModeWeb)
 	check(t, err)
 	if first.version == second.version {
 		t.Fatal("version must change when an asset changes")
 	}
 	assets["index.html"] = &fstest.MapFile{Data: []byte("<p>{{VERSION}}</p>")}
-	third, err := loadAssetSnapshot(assets)
+	third, err := loadAssetSnapshot(assets, ModeWeb)
 	check(t, err)
 	if third.version != second.version {
 		t.Fatal("index.html is not an asset; editing it must not bust asset caches")

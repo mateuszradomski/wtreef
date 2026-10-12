@@ -1,10 +1,10 @@
 // The header's totals. With no filter taking changed files off the map they
-// are the pull request's own, as GitHub reports them; otherwise they sum the
+// are the pull request's own, as GitHub reports them (or the branch's, as git does); otherwise they sum the
 // changed files still shown, and say so. Zoom is navigation, not filtering,
 // so it never changes them, and neither does how tiles are sized.
 
 import { assert } from "./assert.ts";
-import type { PullRequest, Tree } from "./decode.ts";
+import type { ChangeSummary, Tree } from "./decode.ts";
 import { formatChurn, formatCount, plural } from "./format.ts";
 import type { Filters, TreeIndex } from "./model.ts";
 import { activeRegex } from "./pattern.ts";
@@ -58,22 +58,37 @@ export function sumShownChanges(tree: Tree, index: TreeIndex, weights: Float64Ar
   return { additions, deletions, files };
 }
 
-export function describeHeaderTotals(pullRequest: PullRequest, index: TreeIndex, filters: Filters, shown: ChangeTotals): HeaderTotals {
-  const whole = plural(pullRequest.changedFiles, "file", "files");
+/** What the totals are the totals of, as the tooltips name it. */
+export type TotalsScope = "pullRequest" | "branch";
+
+const SCOPE_NAMES: Readonly<Record<TotalsScope, { readonly whole: string; readonly short: string }>> = {
+  pullRequest: { whole: "the whole pull request", short: "Whole PR" },
+  branch: { whole: "the whole branch, uncommitted work included", short: "Whole branch" },
+};
+
+export function describeHeaderTotals(
+  summary: ChangeSummary,
+  index: TreeIndex,
+  filters: Filters,
+  shown: ChangeTotals,
+  scope: TotalsScope = "pullRequest",
+): HeaderTotals {
+  const whole = plural(summary.changedFiles, "file", "files");
+  const names = SCOPE_NAMES[scope];
   if (!filtersHideChangedFiles(filters, index)) {
     return {
-      additions: pullRequest.additions,
-      deletions: pullRequest.deletions,
-      files: pullRequest.changedFiles,
+      additions: summary.additions,
+      deletions: summary.deletions,
+      files: summary.changedFiles,
       filesText: whole,
       filtered: false,
-      description: "Lines added and removed, and files changed, in the whole pull request.",
+      description: `Lines added and removed, and files changed, in ${names.whole}.`,
     };
   }
   return {
     ...shown,
     filesText: `${formatCount(shown.files)} of ${whole}`,
     filtered: true,
-    description: `Filtered. Whole PR: ${formatChurn(pullRequest.additions, pullRequest.deletions)} across ${whole}.`,
+    description: `Filtered. ${names.short}: ${formatChurn(summary.additions, summary.deletions)} across ${whole}.`,
   };
 }

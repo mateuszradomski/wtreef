@@ -21,6 +21,12 @@ test("changed files open their diff, hide, or copy their path", () => {
   assert.deepEqual(labels(OLD), ["Open diff on GitHub", "Hide file [H]", "Copy path"], "deleted files still have a diff");
 });
 
+test("a local branch has no diff on GitHub, so its changed files only hide or copy", () => {
+  const branchLabels = nodeMenuItems(tree, APP, false).map((item) => item.label);
+  assert.deepEqual(branchLabels, ["Hide file", "Copy path"]);
+  assert.deepEqual(nodeMenuItems(tree, UTIL, false).map((item) => item.label), ["Zoom into folder", "Hide folder", "Copy path"]);
+});
+
 test("folders zoom in, hide, or copy their path", () => {
   assert.deepEqual(labels(UTIL), ["Zoom into folder", "Hide folder [H]", "Copy path"]);
 });

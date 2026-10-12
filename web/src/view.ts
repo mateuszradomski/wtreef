@@ -9,7 +9,7 @@
 // implementation whichever way it was asked for.
 
 import { assert } from "./assert.ts";
-import { NodeKind, type PullRequestData, type Tree } from "./decode.ts";
+import { type ChangeSummary, NodeKind, type TreemapData, type Tree } from "./decode.ts";
 import { createDiffUrls, type DiffUrls, diffUrl } from "./diff.ts";
 import { type ContextMenu, createContextMenu, type MenuOpening, openContextMenu } from "./context-menu.ts";
 import { type ControlTooltip, hideControlTooltip, installControlTooltip } from "./control-tooltip.ts";
@@ -69,7 +69,7 @@ const HoverSource = { none: 0, canvas: 1, list: 2 } as const;
 type HoverSource = (typeof HoverSource)[keyof typeof HoverSource];
 
 export interface ViewState {
-  readonly data: PullRequestData;
+  readonly data: TreemapData;
   readonly tree: Tree;
   readonly index: TreeIndex;
   /** "⌥" or "Alt", as hints name the hide modifier on this platform. */
@@ -132,7 +132,7 @@ export interface View {
   readonly controlTooltip: ControlTooltip;
 }
 
-export function mountPullRequestView(root: HTMLElement, data: PullRequestData, search: string): View {
+export function mountTreemapView(root: HTMLElement, data: TreemapData, search: string): View {
   const state = createState(data, search);
   const map = createMapElements();
   // Control and sidebar callbacks need the view, which holds them; they
@@ -157,12 +157,30 @@ export function mountPullRequestView(root: HTMLElement, data: PullRequestData, s
   map.container.append(toast.root);
   shell.append(append(element("div", "pr-main"), map.container, sidebar.root), view.tooltip.root, view.controlTooltip.root, menu.root);
   root.replaceChildren(shell);
-  document.title = `${data.pullRequest.owner}/${data.pullRequest.repo}#${data.pullRequest.number} · wtreef`;
+  document.title = `${viewTitle(data)} · wtreef`;
 
   attachMapEvents(view);
   attachWindowEvents(view);
   requestFrame(view);
   return view;
+}
+
+function viewTitle(data: TreemapData): string {
+  if (data.kind === "pullRequest") return `${data.pullRequest.owner}/${data.pullRequest.repo}#${data.pullRequest.number}`;
+  return `${data.branch.repo}: ${data.branch.headRef === "" ? "HEAD" : data.branch.headRef}`;
+}
+
+/** Only a pull request has diffs to open: a local branch is not on GitHub as such. */
+function hasDiffs(data: TreemapData): boolean {
+  return data.kind === "pullRequest";
+}
+
+function changeSummary(data: TreemapData): ChangeSummary {
+  return data.kind === "pullRequest" ? data.pullRequest : data.branch;
+}
+
+function repositoryName(data: TreemapData): string {
+  return data.kind === "pullRequest" ? data.pullRequest.repo : data.branch.repo;
 }
 
 function updateFilters(getView: () => View, change: (filters: Filters) => Filters): void {
@@ -214,7 +232,7 @@ function toggledSet(set: ReadonlySet<string>, key: string): ReadonlySet<string> 
   return next;
 }
 
-function createState(data: PullRequestData, search: string): ViewState {
+function createState(data: TreemapData, search: string): ViewState {
   const { tree } = data;
   const index = buildTreeIndex(tree);
   const palette = readChartPalette(readCssToken);
@@ -230,7 +248,7 @@ function createState(data: PullRequestData, search: string): ViewState {
     tree,
     index,
     altKey: altKeyLabel(currentPlatform()),
-    diffUrls: createDiffUrls(data.pullRequest, index.paths),
+    diffUrls: createDiffUrls(data.kind === "pullRequest" ? data.pullRequest : null, index.paths),
     filters: query.filters,
     zoomNode,
     fileView: query.fileView,
@@ -332,7 +350,7 @@ function runDomUpdates(view: View): void {
       filters: state.filters,
       tree: state.tree,
       zoomNode: state.zoomNode,
-      repositoryName: state.data.pullRequest.repo,
+      repositoryName: repositoryName(state.data),
     });
     syncFilterSection(view.sidebar.filter, state.filters);
     syncFileViewChoice(view.sidebar, state.fileView);
@@ -341,7 +359,8 @@ function runDomUpdates(view: View): void {
   if (state.totalsDirty) {
     assert(!state.weightsDirty, "totals are summed over the weights for the current filters");
     const shown = sumShownChanges(state.tree, state.index, state.weights);
-    syncHeaderTotals(view.header, describeHeaderTotals(state.data.pullRequest, state.index, state.filters, shown));
+    const scope = state.data.kind === "pullRequest" ? "pullRequest" : "branch";
+    syncHeaderTotals(view.header, describeHeaderTotals(changeSummary(state.data), state.index, state.filters, shown, scope));
     state.totalsDirty = false;
   }
   if (state.listDirty) {
@@ -521,7 +540,7 @@ function attachMapActionEvents(view: View): void {
     if (event.altKey) {
       if (isHideableNode(state.tree, node)) hideNode(view, node);
     } else if (isChangedFile(state.tree, node)) {
-      runNodeAction(view, node, NodeAction.openDiff);
+      if (hasDiffs(state.data)) runNodeAction(view, node, NodeAction.openDiff);
     } else if (state.tree.kinds[node] === NodeKind.directory) {
       runNodeAction(view, node, NodeAction.zoom);
     }
@@ -529,7 +548,7 @@ function attachMapActionEvents(view: View): void {
   map.overlay.addEventListener("contextmenu", (event) => {
     const node = mapTargetAt(state, event.offsetX, event.offsetY);
     // Rest tiles and the space around the map keep the browser's own menu.
-    if (node === NO_NODE || nodeMenuItems(state.tree, node).length === 0) return;
+    if (node === NO_NODE || nodeMenuItems(state.tree, node, hasDiffs(state.data)).length === 0) return;
     event.preventDefault();
     if (longPressOpenedMenu(press)) return;
     openNodeMenu(view, node, { clientX: event.clientX, clientY: event.clientY, byTouch: false });
@@ -550,7 +569,7 @@ function mapTargetAt(state: ViewState, x: number, y: number): number {
 
 function openNodeMenu(view: View, node: number, opening: MenuOpening): void {
   const { state } = view;
-  const items = nodeMenuItems(state.tree, node).map((item) => ({
+  const items = nodeMenuItems(state.tree, node, hasDiffs(state.data)).map((item) => ({
     label: item.label,
     shortcut: item.shortcut,
     run: () => runNodeAction(view, node, item.action),
@@ -565,6 +584,7 @@ function runNodeAction(view: View, node: number, action: NodeAction): void {
   const { state } = view;
   if (action === NodeAction.openDiff) {
     assert(isChangedFile(state.tree, node), "only changed files have a diff");
+    assert(hasDiffs(state.data), "only pull requests have diffs to open");
     window.open(diffUrl(state.diffUrls, node), "_blank", "noopener,noreferrer");
   } else if (action === NodeAction.zoom) {
     zoomTo(view, node);

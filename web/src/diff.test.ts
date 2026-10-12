@@ -14,6 +14,13 @@ import { loadFixtureJson, REAL_FIXTURE, TINY_FIXTURE } from "./test-support.ts";
 
 const expectedHash = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
 
+test("without a pull request, as for a local branch, no file links anywhere", () => {
+  const data = decodePullRequestData(loadFixtureJson(TINY_FIXTURE));
+  const index = buildTreeIndex(data.tree);
+  const urls = createDiffUrls(null, index.paths);
+  for (const node of index.changedFiles) assert.equal(diffUrl(urls, node), "");
+});
+
 test("links each changed file to its anchor in the files tab", () => {
   const data = decodePullRequestData(loadFixtureJson(TINY_FIXTURE));
   const index = buildTreeIndex(data.tree);

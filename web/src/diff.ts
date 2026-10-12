@@ -15,6 +15,7 @@ export function filesTabUrl(pullRequest: PullRequest): string {
 }
 
 export interface DiffUrls {
+  /** "" when there is no pull request, as for a local branch: then no file has a diff. */
   readonly filesTab: string;
   /** Paths by node, as in TreeIndex. */
   readonly paths: readonly string[];
@@ -22,12 +23,14 @@ export interface DiffUrls {
   readonly urls: string[];
 }
 
-export function createDiffUrls(pullRequest: PullRequest, paths: readonly string[]): DiffUrls {
-  return { filesTab: filesTabUrl(pullRequest), paths, urls: new Array<string>(paths.length).fill("") };
+export function createDiffUrls(pullRequest: PullRequest | null, paths: readonly string[]): DiffUrls {
+  const filesTab = pullRequest === null ? "" : filesTabUrl(pullRequest);
+  return { filesTab, paths, urls: new Array<string>(paths.length).fill("") };
 }
 
-/** The link to a changed file's diff in the files tab. */
+/** The link to a changed file's diff in the files tab; "" when there is no pull request. */
 export function diffUrl(diffUrls: DiffUrls, node: number): string {
+  if (diffUrls.filesTab === "") return "";
   const known = diffUrls.urls[node] ?? "";
   if (known !== "") return known;
   const path = diffUrls.paths[node] ?? "";

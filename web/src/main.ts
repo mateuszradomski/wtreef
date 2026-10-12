@@ -1,15 +1,29 @@
-// Entry point: route on the path, then hand the page to one of the views.
+// Entry point: the server says which app this is. The website routes on the
+// path to the landing page or a pull request; the local server only ever
+// serves its one branch, at "/".
 
-import { fetchPullRequestData } from "./api.ts";
+import { fetchBranchData, fetchPullRequestData } from "./api.ts";
 import { assert } from "./assert.ts";
 import { mountLanding } from "./landing.ts";
 import { parseRoute, type PullRequestReference } from "./route.ts";
-import { renderFailure, renderLoading, renderNotFoundPage } from "./states.ts";
-import { mountPullRequestView } from "./view.ts";
+import { renderBranchFailure, renderBranchLoading, renderFailure, renderLoading, renderNotFoundPage } from "./states.ts";
+import { mountTreemapView } from "./view.ts";
+
+type Mode = "web" | "local";
+
+/** index.html carries `<meta name="wtreef-mode">`, filled in by the server. */
+function readMode(): Mode {
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="wtreef-mode"]');
+  return meta?.content === "local" ? "local" : "web";
+}
 
 function main(): void {
   const root = document.getElementById("app");
   assert(root !== null, "index.html must contain #app");
+  if (readMode() === "local") {
+    void showBranch(root);
+    return;
+  }
   const route = parseRoute(window.location.pathname);
   if (route.kind === "landing") {
     mountLanding(root);
@@ -24,9 +38,19 @@ async function showPullRequest(root: HTMLElement, reference: PullRequestReferenc
   renderLoading(root, reference);
   const result = await fetchPullRequestData(reference);
   if (result.kind === "loaded") {
-    mountPullRequestView(root, result.data, window.location.search);
+    mountTreemapView(root, result.data, window.location.search);
   } else {
     renderFailure(root, result, reference, () => void showPullRequest(root, reference));
+  }
+}
+
+async function showBranch(root: HTMLElement): Promise<void> {
+  renderBranchLoading(root);
+  const result = await fetchBranchData();
+  if (result.kind === "loaded") {
+    mountTreemapView(root, result.data, window.location.search);
+  } else {
+    renderBranchFailure(root, result, () => void showBranch(root));
   }
 }
 

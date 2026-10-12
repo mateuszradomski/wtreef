@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodeApiError, decodePullRequestData, FileStatus, NodeKind, parseRetryAfter } from "./decode.ts";
+import { decodeApiError, decodeBranchData, decodePullRequestData, FileStatus, NodeKind, parseRetryAfter } from "./decode.ts";
 import { loadFixtureJson, REAL_FIXTURE, TINY_FIXTURE } from "./test-support.ts";
 
 type TreeJson = Record<string, unknown[]>;
@@ -39,6 +39,43 @@ test("decodes the real l2beat fixture", () => {
     if (data.tree.statuses[index] !== FileStatus.unchanged) changedFiles++;
   }
   assert.equal(changedFiles, data.pullRequest.changedFiles);
+});
+
+/** The local server's body: the tiny fixture's tree around a branch instead of a pull request. */
+function tinyBranchJson(): Record<string, unknown> {
+  const json = loadFixtureJson(TINY_FIXTURE);
+  const pullRequest = json["pullRequest"] as Record<string, unknown>;
+  delete json["pullRequest"];
+  json["branch"] = {
+    repo: "wtreef",
+    headRef: "local-mode",
+    baseRef: "origin/main",
+    baseSha: pullRequest["baseSha"],
+    headSha: pullRequest["headSha"],
+    uncommitted: true,
+    additions: 10,
+    deletions: 2,
+    changedFiles: 3,
+  };
+  return json;
+}
+
+test("decodes a local branch", () => {
+  const data = decodeBranchData(tinyBranchJson());
+  assert.equal(data.kind, "branch");
+  assert.equal(data.branch.headRef, "local-mode");
+  assert.equal(data.branch.uncommitted, true);
+  assert.equal(data.tree.nodeCount, 15);
+});
+
+test("a local branch must be whole and name its base", () => {
+  const truncated = tinyBranchJson();
+  truncated["truncated"] = { files: true, tree: false };
+  assert.throws(() => decodeBranchData(truncated), /never truncated/);
+  const baseless = tinyBranchJson();
+  (baseless["branch"] as Record<string, unknown>)["baseRef"] = "";
+  assert.throws(() => decodeBranchData(baseless), /baseRef/);
+  assert.throws(() => decodeBranchData(loadFixtureJson(TINY_FIXTURE)), /branch/, "a pull request body is not a branch");
 });
 
 const violations: ReadonlyArray<[string, (tree: TreeJson) => void, RegExp]> = [

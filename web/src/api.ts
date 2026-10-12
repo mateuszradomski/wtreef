@@ -1,11 +1,12 @@
-// The one network call. Every outcome becomes a tagged result, so the view
-// can render a specific state for each and never sees a raw exception.
+// The network calls: a pull request on the website, the branch locally.
+// Every outcome becomes a tagged result, so the view can render a specific
+// state for each and never sees a raw exception.
 
-import { type ApiError, decodeApiError, decodePullRequestData, type PullRequestData } from "./decode.ts";
+import { type ApiError, decodeApiError, decodeBranchData, decodePullRequestData, type TreemapData } from "./decode.ts";
 import type { PullRequestReference } from "./route.ts";
 
 export type FetchResult =
-  | { readonly kind: "loaded"; readonly data: PullRequestData }
+  | { readonly kind: "loaded"; readonly data: TreemapData }
   | { readonly kind: "apiError"; readonly error: ApiError }
   | { readonly kind: "unreachable" }
   | { readonly kind: "invalidResponse"; readonly httpStatus: number };
@@ -16,14 +17,23 @@ function apiPath(reference: PullRequestReference): string {
   return `/api/pr/${owner}/${repo}/${reference.number}`;
 }
 
-export async function fetchPullRequestData(reference: PullRequestReference): Promise<FetchResult> {
+export function fetchPullRequestData(reference: PullRequestReference): Promise<FetchResult> {
+  return fetchTreemapData(apiPath(reference), "default", decodePullRequestData);
+}
+
+/** The working tree changes under the page, so the answer is never cached. */
+export function fetchBranchData(): Promise<FetchResult> {
+  return fetchTreemapData("/api/local", "no-store", decodeBranchData);
+}
+
+async function fetchTreemapData(path: string, cache: RequestCache, decode: (json: unknown) => TreemapData): Promise<FetchResult> {
   let response: Response;
   try {
-    response = await fetch(apiPath(reference), {
+    response = await fetch(path, {
       method: "GET",
       headers: { Accept: "application/json" },
       credentials: "same-origin",
-      cache: "default",
+      cache,
       redirect: "follow",
     });
   } catch {
@@ -36,7 +46,7 @@ export async function fetchPullRequestData(reference: PullRequestReference): Pro
     return { kind: "invalidResponse", httpStatus: response.status };
   }
   try {
-    if (response.ok) return { kind: "loaded", data: decodePullRequestData(json) };
+    if (response.ok) return { kind: "loaded", data: decode(json) };
     const error = decodeApiError(response.status, json, response.headers.get("Retry-After"), Date.now());
     return { kind: "apiError", error };
   } catch (error) {
