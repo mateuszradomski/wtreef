@@ -18,6 +18,7 @@ const TARGETS = [
 ];
 const SCOPE = "@wtreef";
 const OUTPUT = "bin/npm";
+const LICENSE = "MIT";
 const DESCRIPTION = "See where your branch changes a codebase: a treemap of the repository with the changed files lit up.";
 
 const version = process.argv[2] ?? "";
@@ -37,10 +38,12 @@ for (const target of TARGETS) {
     stdio: "inherit",
     env: { ...process.env, GOOS: target.goos, GOARCH: target.goarch, CGO_ENABLED: "0" },
   });
+  copyFileSync("LICENSE", join(directory, "LICENSE"));
   writeJson(join(directory, "package.json"), {
     name,
     version,
     description: `The ${target.os} ${target.cpu} binary of wtreef.`,
+    license: LICENSE,
     os: [target.os],
     cpu: [target.cpu],
     preferUnplugged: true,
@@ -52,10 +55,12 @@ const main = join(OUTPUT, "wtreef");
 mkdirSync(join(main, "bin"), { recursive: true });
 copyFileSync("npm/wtreef/bin/wtreef.js", join(main, "bin", "wtreef.js"));
 copyFileSync("README.md", join(main, "README.md"));
+copyFileSync("LICENSE", join(main, "LICENSE"));
 writeJson(join(main, "package.json"), {
   name: "wtreef",
   version,
   description: DESCRIPTION,
+  license: LICENSE,
   bin: { wtreef: "bin/wtreef.js" },
   engines: { node: ">=18" },
   optionalDependencies: Object.fromEntries(TARGETS.map((target) => [`${SCOPE}/${target.os}-${target.cpu}`, version])),
