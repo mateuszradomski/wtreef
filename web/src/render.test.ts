@@ -1,6 +1,7 @@
 // Methodology: draw the real fixture into a recording stand-in for the
 // canvas 2D context, then check what was painted where. Folder headers must
-// be 10px type inside their 12px band in the quiet ink, with no strip
+// be 10px type inside their 12px band, with a quiet path and emphasized
+// folder name, and no strip
 // painted behind them. Highlighting a folder must outline the whole frame of
 // its chain and repaint the header in the bright ink; highlighting a file
 // outlines only the tile.
@@ -62,6 +63,7 @@ class RecordingContext {
 const TOKENS: Readonly<Record<string, string>> = {
   "--fg": "#eeeeee",
   "--fg-3": "#808080",
+  "--fg-2": "#aaaaaa",
   "--frame": "#111111",
   "--hover-outline": "#ffffff",
   "--font-sans": "sans",
@@ -94,19 +96,23 @@ function headedFrames(scene: Scene): number[] {
   return frames;
 }
 
-test("folder headers are 10px quiet text inside a 12px band, with no strip behind them", () => {
+test("folder headers emphasize the final name inside a compact band, with no strip", () => {
   const { scene, context, drawing } = setup();
   drawBase(drawing, scene, 1);
   const frames = headedFrames(scene);
   assert.ok(frames.length > 0);
   const headerTexts = context.painted.filter((paint) => paint.operation === "fillText" && paint.font === "10px sans");
-  assert.equal(headerTexts.length, frames.length, "one label per headed frame");
+  assert.equal(headerTexts.filter((paint) => paint.style === scene.palette.frameEmphasis).length, frames.length,
+    "each folder has one emphasized name");
   for (const node of frames) {
     const frame = rectOf(scene.layout, node);
     const bandTop = frame.y + LAYOUT.padding;
     const label = headerTexts.find((paint) => paint.x > frame.x && paint.x < frame.x + 8 && paint.y > bandTop && paint.y <= bandTop + LAYOUT.headerHeight);
     assert.ok(label !== undefined, `frame ${node} has a label in its band`);
-    assert.equal(label.style, scene.palette.frameText);
+    assert.ok(label.style === scene.palette.frameText || label.style === scene.palette.frameEmphasis);
+    const parts = headerTexts.filter((paint) => paint.y === label.y && paint.x >= frame.x && paint.x < frame.x + frame.width);
+    const prefix = parts.find((paint) => paint.style === scene.palette.frameText);
+    if (prefix !== undefined) assert.ok(prefix.text.endsWith("/"), "only the ancestor path is quiet");
   }
   const strips = context.painted.filter((paint) => paint.operation === "fillRect" && paint.height === LAYOUT.headerHeight);
   assert.deepEqual(strips, [], "header text sits on the frame background");
@@ -129,9 +135,9 @@ test("highlighting a folder outlines its chain's whole frame and brightens its h
     [{ x: frame.x + 0.5, y: frame.y + 0.5, width: frame.width - 1, height: frame.height - 1, style: scene.palette.hoverOutline }],
   );
   const texts = context.painted.filter((paint) => paint.operation === "fillText");
-  assert.equal(texts.length, 1);
-  assert.equal(texts[0]?.style, scene.palette.frameTextHover);
-  assert.ok(texts[0]?.text.includes("/"), "a chain's header names every folder in it");
+  assert.ok(texts.length >= 1);
+  assert.ok(texts.every((paint) => paint.style === scene.palette.frameTextHover));
+  assert.ok(texts.map((paint) => paint.text).join("").includes("/"), "a chain's header names every folder in it");
 });
 
 test("highlighting a file outlines only its tile, and the root is never highlighted", () => {

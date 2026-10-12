@@ -6,14 +6,14 @@ import { assert } from "./assert.ts";
 import { type DiffScale, diffColor, pickInk, parseHexColor, type Rgb, rgbToHex, rgbToOklab } from "./color.ts";
 import { FileStatus, NodeKind, type Tree } from "./decode.ts";
 import { formatChurnNonZero, formatCount } from "./format.ts";
-import { chainTop, LAYOUT, type Layout, LayoutFlag, NO_CHAIN } from "./layout.ts";
+import { chainEnd, chainTop, LAYOUT, type Layout, LayoutFlag } from "./layout.ts";
 import { churnOf, isChangedFile, type TreeIndex } from "./model.ts";
 
 export interface ChartPalette {
   readonly canvas: string;
   readonly frame: string;
-  readonly frameLine: string;
   readonly frameText: string;
+  readonly frameEmphasis: string;
   readonly frameTextHover: string;
   readonly contextText: string;
   readonly tileFile: Rgb;
@@ -37,8 +37,8 @@ export function readChartPalette(readToken: (name: string) => string): ChartPale
   return {
     canvas: css("--bg"),
     frame: css("--frame"),
-    frameLine: css("--frame-line"),
     frameText: css("--fg-3"),
+    frameEmphasis: css("--fg-2"),
     frameTextHover: css("--fg"),
     contextText: css("--fg-3"),
     tileFile,
@@ -107,15 +107,15 @@ const LABEL = {
   headerSizePx: 10,
   nameSizePx: 11,
   numbersSizePx: 10,
-  firstBaselineY: 12,
-  secondBaselineY: 25,
+  firstBaselineY: 14,
+  secondBaselineY: 27,
   widthMin: 28,
-  heightMin: 16,
-  secondLineHeightMin: 30,
+  heightMin: 18,
+  secondLineHeightMin: 32,
 } as const;
-/** From the top of the header band; 10px type fits its descenders in the 12px band. */
+/** Compact folder labels fit inside the 12px band. */
 const HEADER_BASELINE_Y = 9;
-const HATCH_SPACING_PX = 6;
+const HATCH_SPACING_PX = 10;
 
 export function drawBase(context: CanvasRenderingContext2D, scene: Scene, pixelRatio: number): void {
   const { layout, tree } = scene;
@@ -148,9 +148,6 @@ function drawFrame(context: CanvasRenderingContext2D, scene: Scene, node: number
   const height = layout.rects[offset + 3] ?? 0;
   context.fillStyle = palette.frame;
   context.fillRect(x, y, width, height);
-  context.strokeStyle = palette.frameLine;
-  context.lineWidth = 1;
-  context.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1);
 }
 
 /** Header text sits on the frame's own background: no strip, so nesting reads as indentation, not as stacked bars. */
@@ -161,20 +158,36 @@ function drawFrameHeader(context: CanvasRenderingContext2D, scene: Scene, node: 
   const width = layout.rects[node * 4 + 2] ?? 0;
   context.font = `${LABEL.headerSizePx}px ${palette.fontSans}`;
   context.fillStyle = color;
-  const label = fitText(context, chainLabel(scene, node), width - 2 * LABEL.paddingX);
-  context.fillText(label, x + LABEL.paddingX, y + LAYOUT.padding + HEADER_BASELINE_Y);
+  const available = width - 2 * LABEL.paddingX;
+  const path = folderPath(scene, node);
+  const baseline = y + LAYOUT.padding + HEADER_BASELINE_Y;
+  const hovered = color === palette.frameTextHover;
+  const label = fitFolderPath(context, path, available);
+  const split = label.lastIndexOf("/") + 1;
+  const prefix = label.slice(0, split);
+  if (prefix !== "") context.fillText(prefix, x + LABEL.paddingX, baseline);
+  const prefixWidth = context.measureText(prefix).width;
+  context.fillStyle = hovered ? color : palette.frameEmphasis;
+  context.fillText(label.slice(split), x + LABEL.paddingX + prefixWidth, baseline);
 }
 
-/** "pages/blobs/components" for a chain of single-child folders; just the name otherwise. */
-function chainLabel(scene: Scene, node: number): string {
-  const { layout, tree } = scene;
-  let label = tree.names[node] ?? "";
-  let current = layout.chainChild[node] ?? NO_CHAIN;
-  for (let depth = 0; current !== NO_CHAIN && depth < tree.nodeCount; depth++) {
-    label += `/${tree.names[current] ?? ""}`;
-    current = layout.chainChild[current] ?? NO_CHAIN;
+/** Paths replace the ancestor labels omitted from the map; zoom breadcrumbs supply the prefix. */
+function folderPath(scene: Scene, node: number): string {
+  const path = scene.index.paths[chainEnd(scene.layout, node)] ?? "";
+  const root = scene.index.paths[scene.layout.rootNode] ?? "";
+  return root === "" ? path : path.slice(root.length + 1);
+}
+
+/** Keep the nearest folders visible when a full path does not fit. */
+function fitFolderPath(context: CanvasRenderingContext2D, path: string, width: number): string {
+  if (context.measureText(path).width <= width) return path;
+  const parts = path.split("/");
+  while (parts.length > 1) {
+    parts.shift();
+    const shortened = `…/${parts.join("/")}`;
+    if (context.measureText(shortened).width <= width) return shortened;
   }
-  return label;
+  return fitText(context, `…/${parts[0] ?? ""}`, width);
 }
 
 function drawTile(context: CanvasRenderingContext2D, scene: Scene, node: number): void {
@@ -296,7 +309,7 @@ function drawTileHighlight(context: CanvasRenderingContext2D, scene: Scene, node
   );
 }
 
-/** A 1px line over the frame's own border: a 2px one would cut into the tiles the 1px padding leaves room for. */
+/** A fine outline makes the whole folder target clear without covering its tiles. */
 function drawFolderHighlight(context: CanvasRenderingContext2D, scene: Scene, top: number): void {
   const { layout, palette } = scene;
   assert(((layout.flags[top] ?? 0) & LayoutFlag.chained) === 0, "a chain is drawn by its top");

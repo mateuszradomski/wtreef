@@ -33,7 +33,7 @@ test("the center of every leaf hits that leaf", () => {
 
 test("a directory header hits the directory and counts as a frame hit", () => {
   const { tree, index, layout } = setup();
-  const src = 1;
+  const src = 9;
   assert.ok(((layout.flags[src] ?? 0) & LayoutFlag.header) !== 0);
   const x = layout.rects[src * 4]! + 10;
   const y = layout.rects[src * 4 + 1]! + LAYOUT.padding + LAYOUT.headerHeight / 2;

@@ -43,7 +43,7 @@
   --tile-file: #1d1d22;
   --tile-collapsed: #18181d;
   --tile-rest: #141417;
-  --tile-rest-hatch: #26262c;
+  --tile-rest-hatch: #1f1f25;
   --tile-renamed: #3b3f66;
   --frame: #111113;
   --frame-line: #222226;
@@ -93,7 +93,7 @@
     --tile-file: #eae9e5;
     --tile-collapsed: #f1f0ed;
     --tile-rest: #f4f3f1;
-    --tile-rest-hatch: #dcd9d4;
+    --tile-rest-hatch: #e8e5e0;
     --tile-renamed: #c9cbef;
     --frame: #fafaf9;
     --frame-line: #e4e3e0;

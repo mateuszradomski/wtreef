@@ -126,13 +126,14 @@ test("nested layout invariants hold on both fixtures at many sizes", () => {
   }
 });
 
-test("the root fills the viewport and big children get headers and open frames", () => {
+test("structural folders have no header, while tile groups get a path header", () => {
   const { tree, layout } = layoutFixture(TINY_FIXTURE, 800, 600);
   assert.deepEqual(rectOf(layout, 0), { x: 0, y: 0, width: 800, height: 600 });
   assert.equal(layout.drawOrder[0], 0);
   const src = 1;
   assert.equal(tree.kinds[src], NodeKind.directory);
-  assert.ok(((layout.flags[src] ?? 0) & LayoutFlag.header) !== 0);
+  assert.equal((layout.flags[src] ?? 0) & LayoutFlag.header, 0);
+  assert.ok(((layout.flags[9] ?? 0) & LayoutFlag.header) !== 0, "src/util directly groups files");
   assert.ok(((layout.flags[src] ?? 0) & LayoutFlag.open) !== 0);
   assert.equal((layout.flags[0] ?? 0) & LayoutFlag.header, 0, "the zoom root has no header; breadcrumbs name it");
 });
@@ -200,6 +201,19 @@ test("an open headed frame starts its tiles right under a 12px header and 1px pa
     assert.equal(topmost, frame.y + LAYOUT.padding + LAYOUT.headerHeight, `frame ${node}`);
   }
   assert.ok(headed > 0, "the l2beat PR has headed folders at this size");
+});
+
+test("folder paths reserve at most one header along each branch", () => {
+  for (const sizeMode of [SizeMode.context, SizeMode.churn]) {
+    const { tree, layout } = layoutFixture(REAL_FIXTURE, 1280, 800, sizeMode);
+    for (let node = 1; node < tree.nodeCount; node++) {
+      if (((layout.flags[node] ?? 0) & LayoutFlag.header) === 0) continue;
+      for (let parent = tree.parents[node]!; parent > 0; parent = tree.parents[parent]!) {
+        assert.equal((layout.flags[parent] ?? 0) & LayoutFlag.header, 0,
+          `folder ${node} must not stack a header under ancestor ${parent}`);
+      }
+    }
+  }
 });
 
 test("layout is deterministic", () => {

@@ -125,7 +125,8 @@ function layoutDirectory(
   const width = layout.rects[offset + 2] ?? 0;
   const height = layout.rects[offset + 3] ?? 0;
   const isChained = ((layout.flags[node] ?? 0) & LayoutFlag.chained) !== 0;
-  const hasHeader = !isRoot && !isChained && width >= LAYOUT.headerWidthMin && height >= LAYOUT.headerHeightMin;
+  const hasHeader = !isRoot && !isChained && width >= LAYOUT.headerWidthMin && height >= LAYOUT.headerHeightMin
+    && isTileGroup(tree, index, weights, node);
   if (hasHeader) layout.flags[node]! |= LayoutFlag.header;
 
   // A chained directory already sits inside its parent's padding.
@@ -159,6 +160,31 @@ function layoutDirectory(
     layout.flags[onlyChild]! |= LayoutFlag.chained;
     layout.chainChild[node] = onlyChild;
   }
+}
+
+/** Only the innermost groups need a label; structural ancestors consume no header rows.
+ * Single-child directory chains count as one group, named by their shared header.
+ */
+function isTileGroup(tree: Tree, index: TreeIndex, weights: Float64Array, node: number): boolean {
+  let current = node;
+  for (let depth = 0; depth < tree.nodeCount; depth++) {
+    let children = 0;
+    let directories = 0;
+    let directory = 0;
+    for (let cursor = index.childStart[current] ?? 0; cursor < (index.childStart[current + 1] ?? 0); cursor++) {
+      const child = index.childIndices[cursor] ?? 0;
+      if ((weights[child] ?? 0) <= 0) continue;
+      children++;
+      if (tree.kinds[child] === NodeKind.directory) {
+        directories++;
+        directory = child;
+      }
+    }
+    if (directories === 0) return children > 0;
+    if (children !== 1) return false;
+    current = directory;
+  }
+  assert(false, "directory chains are bounded by tree depth");
 }
 
 /** The deepest directory of the chain starting at `node` (itself when unchained). */
