@@ -3,11 +3,11 @@
 // Exclude patterns). Built once per PR; syncControls mirrors the view state
 // into it. It never owns state: every interaction goes through a callback.
 
-import { assert } from "./assert.ts";
 import type { Tree } from "./decode.ts";
 import { append, button, element } from "./dom.ts";
 import { type Filters, SizeMode } from "./model.ts";
 import { createPatternField, type PatternField, syncPatternField } from "./pattern-field.ts";
+import { createSegmented, type Segmented, type SegmentedOption, syncSegmented } from "./segmented.ts";
 
 export interface ControlsCallbacks {
   readonly onSizeMode: (mode: SizeMode) => void;
@@ -20,7 +20,7 @@ export interface Controls {
   readonly root: HTMLElement;
   readonly crumbList: HTMLElement;
   readonly escapeHint: HTMLElement;
-  readonly sizeButtons: ReadonlyMap<SizeMode, HTMLButtonElement>;
+  readonly sizeMode: Segmented<SizeMode>;
   readonly include: PatternField;
   readonly exclude: PatternField;
   readonly onZoom: (node: number) => void;
@@ -38,9 +38,9 @@ export interface ControlsInput {
 
 const NO_CRUMBS = -1;
 
-const SIZE_MODE_LABELS: ReadonlyArray<readonly [SizeMode, string, string]> = [
-  [SizeMode.churn, "Churn", "Size tiles by lines added plus lines removed"],
-  [SizeMode.context, "Context", "Size tiles by file size, with unchanged files around the changes"],
+const SIZE_MODE_OPTIONS: readonly SegmentedOption<SizeMode>[] = [
+  { value: SizeMode.churn, label: "Churn", description: "Size tiles by lines added plus lines removed" },
+  { value: SizeMode.context, label: "Context", description: "Size tiles by file size, with unchanged files around the changes" },
 ];
 
 export function createControls(callbacks: ControlsCallbacks): Controls {
@@ -53,11 +53,12 @@ export function createControls(callbacks: ControlsCallbacks): Controls {
   escapeHint.hidden = true;
   append(crumbs, crumbList, escapeHint);
 
-  const sizeButtons = createSizeModeGroup(callbacks);
+  const sizeMode = createSegmented("", SIZE_MODE_OPTIONS, callbacks.onSizeMode);
   const sizeGroup = element("div", "control-group");
   const sizeLabel = element("span", "control-label", "Size");
   sizeLabel.id = "size-mode-label";
-  append(sizeGroup, sizeLabel, sizeButtons.segmented);
+  sizeMode.root.setAttribute("aria-labelledby", sizeLabel.id);
+  append(sizeGroup, sizeLabel, sizeMode.root);
   const include = createPatternField({
     name: "include",
     label: "Include",
@@ -78,7 +79,7 @@ export function createControls(callbacks: ControlsCallbacks): Controls {
     root,
     crumbList,
     escapeHint,
-    sizeButtons: sizeButtons.buttons,
+    sizeMode,
     include,
     exclude,
     onZoom: callbacks.onZoom,
@@ -86,52 +87,8 @@ export function createControls(callbacks: ControlsCallbacks): Controls {
   };
 }
 
-function createSizeModeGroup(callbacks: ControlsCallbacks): {
-  segmented: HTMLElement;
-  buttons: Map<SizeMode, HTMLButtonElement>;
-} {
-  const buttons = new Map<SizeMode, HTMLButtonElement>();
-  const segmented = element("div", "segmented");
-  segmented.setAttribute("role", "radiogroup");
-  segmented.setAttribute("aria-labelledby", "size-mode-label");
-  for (const [mode, label, description] of SIZE_MODE_LABELS) {
-    const option = button("segment", label);
-    option.setAttribute("role", "radio");
-    option.title = description;
-    option.addEventListener("click", () => callbacks.onSizeMode(mode));
-    buttons.set(mode, option);
-    segmented.append(option);
-  }
-  // Radio semantics: arrows move the choice, and Tab enters and leaves the group as one stop.
-  segmented.addEventListener("keydown", (event) => {
-    const step = arrowStep(event.key);
-    if (step === 0) return;
-    const modes = SIZE_MODE_LABELS.map(([mode]) => mode);
-    const focused = modes.findIndex((mode) => buttons.get(mode) === document.activeElement);
-    if (focused < 0) return;
-    event.preventDefault();
-    const next = modes[(focused + step + modes.length) % modes.length];
-    assert(next !== undefined, "the index wraps within the modes");
-    buttons.get(next)?.focus();
-    callbacks.onSizeMode(next);
-  });
-  return { segmented, buttons };
-}
-
-/** +1 for the next option, -1 for the previous one, 0 for any other key. */
-export function arrowStep(key: string): number {
-  if (key === "ArrowRight" || key === "ArrowDown") return 1;
-  if (key === "ArrowLeft" || key === "ArrowUp") return -1;
-  return 0;
-}
-
 export function syncControls(controls: Controls, input: ControlsInput): void {
-  for (const [mode, option] of controls.sizeButtons) {
-    const active = mode === input.filters.sizeMode;
-    option.setAttribute("aria-checked", active ? "true" : "false");
-    option.classList.toggle("is-active", active);
-    option.tabIndex = active ? 0 : -1;
-  }
+  syncSegmented(controls.sizeMode, input.filters.sizeMode);
   syncPatternField(controls.include, input.filters.include);
   syncPatternField(controls.exclude, input.filters.exclude);
   if (controls.crumbsZoomNode !== input.zoomNode) {

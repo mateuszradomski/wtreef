@@ -8,6 +8,7 @@ import { NodeKind, type PullRequestData, type Tree } from "./decode.ts";
 import { computeDiffUrls, filesTabUrl } from "./diff.ts";
 import { createControls, type Controls, type ControlsCallbacks, syncControls } from "./controls.ts";
 import { append, element } from "./dom.ts";
+import { type FileView, withFolderExpanded } from "./file-tree.ts";
 import { createFilterSection, type FilterSectionCallbacks, syncFilterSection } from "./filter-section.ts";
 import { hitTest, isDirectoryFrameHit, NO_NODE } from "./hit.ts";
 import { chainEnd, chainTop, computeLayout, createLayout, type Layout, LayoutFlag } from "./layout.ts";
@@ -26,7 +27,15 @@ import {
 import { parsePathPattern } from "./pattern.ts";
 import { parseViewQuery, serializeViewQuery } from "./query.ts";
 import { type ChartPalette, computeTileStyles, drawBase, drawHighlight, readChartPalette, type TileStyles } from "./render.ts";
-import { createSidebar, highlightRow, renderFileList, type Sidebar } from "./sidebar.ts";
+import {
+  type ChangedFilesInput,
+  createSidebar,
+  highlightRow,
+  renderChangedFiles,
+  type Sidebar,
+  type SidebarCallbacks,
+  syncFileViewChoice,
+} from "./sidebar.ts";
 import { createTooltip, describeNode, fillTooltip, hideTooltip, moveTooltip, type Tooltip } from "./tooltip.ts";
 import { createHeader, createTruncationBanner } from "./ui.ts";
 
@@ -44,6 +53,9 @@ export interface ViewState {
   diffUrls: readonly string[];
   filters: Filters;
   zoomNode: number;
+  fileView: FileView;
+  /** Folders closed in the Tree view, by node. In memory only: it outlives filter and zoom changes, not the page. */
+  collapsedFolders: ReadonlySet<number>;
   readonly weights: Float64Array;
   readonly insideZoom: Uint8Array;
   readonly layout: Layout;
@@ -102,10 +114,7 @@ export function mountPullRequestView(root: HTMLElement, data: PullRequestData, s
   };
   const controls = createControls(controlsCallbacks(getView));
   const filterSection = createFilterSection(state.index, filterCallbacks(getView), !window.matchMedia(NARROW_LAYOUT_QUERY).matches);
-  const sidebar = createSidebar(filterSection, {
-    onHoverRow: (node) => hoverFromList(getView(), node),
-    onLeaveRows: () => leaveList(getView()),
-  });
+  const sidebar = createSidebar(filterSection, state.tree, state.index, sidebarCallbacks(getView));
   view = { state, map, controls, sidebar, tooltip: createTooltip() };
 
   const shell = element("div", "pr-view");
@@ -161,6 +170,15 @@ function filterCallbacks(getView: () => View): FilterSectionCallbacks {
   };
 }
 
+function sidebarCallbacks(getView: () => View): SidebarCallbacks {
+  return {
+    onHoverRow: (node) => hoverFromList(getView(), node),
+    onLeaveRows: () => leaveList(getView()),
+    onFileView: (fileView) => setFileView(getView(), fileView),
+    onFolderExpanded: (top, end, expanded) => setFolderExpanded(getView(), top, end, expanded),
+  };
+}
+
 function toggledSet(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
   const next = new Set(set);
   if (next.has(key)) {
@@ -187,6 +205,8 @@ function createState(data: PullRequestData, search: string): ViewState {
     diffUrls: [],
     filters: query.filters,
     zoomNode,
+    fileView: query.fileView,
+    collapsedFolders: new Set(),
     weights: new Float64Array(tree.nodeCount),
     insideZoom: new Uint8Array(tree.nodeCount),
     layout: createLayout(tree.nodeCount),
@@ -286,10 +306,11 @@ function runDomUpdates(view: View): void {
       repositoryName: state.data.pullRequest.repo,
     });
     syncFilterSection(view.sidebar.filter, state.filters);
+    syncFileViewChoice(view.sidebar, state.fileView);
     state.controlsDirty = false;
   }
   if (state.listDirty) {
-    renderFileList(view.sidebar, fileListInput(state));
+    renderChangedFiles(view.sidebar, changedFilesInput(state));
     state.listDirty = false;
     state.highlightDirty = true;
   }
@@ -299,21 +320,24 @@ function runDomUpdates(view: View): void {
   }
   if (state.urlDirty) {
     const zoomPath = state.index.paths[state.zoomNode] ?? "";
-    const query = serializeViewQuery({ filters: state.filters, zoomPath });
+    const query = serializeViewQuery({ filters: state.filters, zoomPath, fileView: state.fileView });
     history.replaceState(history.state, "", `${window.location.pathname}${query}`);
     state.urlDirty = false;
   }
 }
 
-function fileListInput(state: ViewState) {
+function changedFilesInput(state: ViewState): ChangedFilesInput {
   return {
+    fileView: state.fileView,
     tree: state.tree,
     index: state.index,
     weights: state.weights,
     insideZoom: state.insideZoom,
+    zoomNode: state.zoomNode,
+    zoomPath: state.index.paths[state.zoomNode] ?? "",
+    collapsedFolders: state.collapsedFolders,
     diffUrls: state.diffUrls,
     fallbackUrl: filesTabUrl(state.data.pullRequest),
-    zoomPath: state.index.paths[state.zoomNode] ?? "",
   };
 }
 
@@ -457,6 +481,24 @@ function activateNode(view: View, node: number): void {
     return;
   }
   if (isDirectoryFrameHit(state.tree, state.layout, node)) zoomTo(view, chainEnd(state.layout, chainTop(state.tree, state.layout, node)));
+}
+
+function setFileView(view: View, fileView: FileView): void {
+  const { state } = view;
+  if (state.fileView === fileView) return;
+  state.fileView = fileView;
+  state.listDirty = true;
+  state.controlsDirty = true;
+  state.urlDirty = true;
+  requestFrame(view);
+}
+
+/** `top` and `end` are the first and last folder of a Tree view row; see withFolderExpanded. */
+function setFolderExpanded(view: View, top: number, end: number, expanded: boolean): void {
+  const { state } = view;
+  state.collapsedFolders = withFolderExpanded(state.collapsedFolders, state.tree, top, end, expanded);
+  state.listDirty = true;
+  requestFrame(view);
 }
 
 function zoomTo(view: View, node: number): void {

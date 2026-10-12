@@ -5,6 +5,7 @@
 
 import { assert } from "./assert.ts";
 import { FileStatus } from "./decode.ts";
+import { FileView } from "./file-tree.ts";
 import { DEFAULT_FILTERS, type Filters, SizeMode } from "./model.ts";
 import { EMPTY_PATH_PATTERN, PATH_PATTERN_LENGTH_MAX, type PathPattern, parsePathPattern, patternSource } from "./pattern.ts";
 
@@ -19,7 +20,11 @@ export interface ViewQuery {
   readonly filters: Filters;
   /** Path of the zoomed directory; "" is the repository root. */
   readonly zoomPath: string;
+  readonly fileView: FileView;
 }
+
+/** The Tree view is the default; only the List view is written to the URL. */
+export const DEFAULT_FILE_VIEW: FileView = FileView.tree;
 
 const PARAMETER = {
   size: "size",
@@ -30,6 +35,7 @@ const PARAMETER = {
   include: "include",
   exclude: "exclude",
   zoom: "zoom",
+  files: "files",
 } as const;
 
 const LIST_SEPARATOR = ",";
@@ -55,13 +61,23 @@ export function parseViewQuery(search: string, vocabulary: FilterVocabulary): Vi
     include: parsePatternParameter(parameters.get(PARAMETER.include)),
     exclude: parsePatternParameter(parameters.get(PARAMETER.exclude)),
   };
-  return { filters, zoomPath: parseZoomPath(parameters.get(PARAMETER.zoom)) };
+  return {
+    filters,
+    zoomPath: parseZoomPath(parameters.get(PARAMETER.zoom)),
+    fileView: parseFileView(parameters.get(PARAMETER.files)),
+  };
 }
 
 function parseSizeMode(value: string | null): SizeMode {
   if (value === SizeMode.churn) return SizeMode.churn;
   if (value === SizeMode.context) return SizeMode.context;
   return DEFAULT_FILTERS.sizeMode;
+}
+
+function parseFileView(value: string | null): FileView {
+  if (value === FileView.list) return FileView.list;
+  if (value === FileView.tree) return FileView.tree;
+  return DEFAULT_FILE_VIEW;
 }
 
 function splitList(value: string | null): string[] {
@@ -122,6 +138,7 @@ export function serializeViewQuery(query: ViewQuery): string {
   const exclude = patternSource(filters.exclude);
   if (exclude !== "") parameters.set(PARAMETER.exclude, exclude);
   if (query.zoomPath !== "") parameters.set(PARAMETER.zoom, query.zoomPath);
+  if (query.fileView !== DEFAULT_FILE_VIEW) parameters.set(PARAMETER.files, query.fileView);
   // "/" and "," are legal in a query string; leaving them unescaped keeps shared links readable.
   const text = parameters.toString().replace(/%2F/g, "/").replace(/%2C/g, ",");
   assert(!text.startsWith("?"), "URLSearchParams serializes without a leading ?");

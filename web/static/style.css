@@ -374,6 +374,19 @@ input {
   outline-offset: 1px;
 }
 
+/* A quieter one for section headings. */
+.segmented-small {
+  height: 22px;
+  padding: 1px;
+  gap: 1px;
+}
+
+.segmented-small .segment {
+  padding: 0 7px;
+  border-radius: var(--radius-small);
+  font-size: var(--text-meta);
+}
+
 .text-button {
   padding: 2px 0;
   border: 0;
@@ -817,13 +830,14 @@ input {
 .files-header {
   flex: none;
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px 6px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px 6px;
 }
 
 .files-heading {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -972,6 +986,142 @@ input {
   background: var(--status-deleted);
 }
 
+/*
+ * The Tree view. Unlike the list, rows are independent grids: a shared
+ * subgrid over thousands of rows made every re-render lay out all of them.
+ * Number columns line up through widths set per render (in ch of the mono
+ * font), and off-screen rows skip layout entirely. Rows keep the list's
+ * height, so switching views does not jump.
+ */
+.file-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 8px 16px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+.tree-row {
+  --tree-indent: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-rows: auto 2px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 32px;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 5px 8px 4px;
+  border-radius: var(--radius-small);
+  /* One guide per ancestor, under the middle of that ancestor's chevron (8px padding + half the 12px icon). */
+  background-image: repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px var(--tree-indent));
+  background-position: 14px 0;
+  background-repeat: no-repeat;
+  background-size: calc(var(--tree-depth, 0) * var(--tree-indent)) 100%;
+  color: var(--fg-2);
+  font-size: var(--text-control);
+  /* A whole-pixel height (5 + 17 + 4 + 2 + 4 = 32px) keeps the guides seamless from row to row. */
+  line-height: 17px;
+  text-decoration: none;
+}
+
+/* background-color only: the shorthand would drop the guides. */
+.tree-row:hover {
+  background-color: var(--surface-2);
+}
+
+.tree-folder {
+  cursor: pointer;
+  user-select: none;
+}
+
+.tree-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding-left: calc(var(--tree-depth, 0) * var(--tree-indent));
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.tree-label .file-status {
+  flex: none;
+  width: 12px;
+  text-align: center;
+}
+
+/* A chevron: right when closed, down when open, like the Filter section's. */
+.tree-chevron {
+  position: relative;
+  flex: none;
+  align-self: center;
+  width: 12px;
+  height: 12px;
+  color: var(--fg-3);
+}
+
+.tree-chevron::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 5px;
+  height: 5px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  transform: rotate(-45deg);
+}
+
+.tree-folder[aria-expanded="true"] .tree-chevron::before {
+  top: 2px;
+  left: 3.5px;
+  transform: rotate(45deg);
+}
+
+.tree-folder:hover .tree-chevron {
+  color: var(--fg-2);
+}
+
+.tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-file .tree-name {
+  color: var(--fg);
+}
+
+/* Folder names are a step quieter than file names, so files read as the content. */
+.tree-folder .file-name {
+  color: var(--fg-2);
+}
+
+/* The folder's file count ends the label, right before its line counts. */
+.tree-count {
+  flex: none;
+  margin-left: auto;
+  padding-left: 4px;
+  color: var(--fg-3);
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.tree-row .churn-bar {
+  grid-column: 2 / -1;
+}
+
+.tree-row .file-additions {
+  min-width: var(--tree-additions-width, auto);
+  text-align: right;
+}
+
+.tree-row .file-deletions {
+  min-width: var(--tree-deletions-width, auto);
+  text-align: right;
+}
+
 .file-list-footer {
   margin: 0;
   padding: 8px 16px 16px;
@@ -1116,7 +1266,8 @@ input {
     border-left: 0;
   }
 
-  .file-list {
+  .file-list,
+  .file-tree {
     overflow: visible;
   }
 }
