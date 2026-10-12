@@ -3,11 +3,14 @@
 import { append, element, link } from "./dom.ts";
 import { parsePullRequestInput, pullRequestPath } from "./route.ts";
 
-/** Real PRs with different shapes: almost all additions, mixed, and mostly deletions. */
+/**
+ * Real PRs with different shapes. Notes describe the shape, not the numbers:
+ * open PRs keep changing, and hard-coded counts went stale within hours.
+ */
 const EXAMPLES: ReadonlyArray<readonly [string, string]> = [
-  ["l2beat/l2beat/pull/13157", "+10,941 \u2212109 \u00b7 95 files"],
-  ["denoland/deno/pull/36907", "+740 \u2212161 \u00b7 44 files"],
-  ["microsoft/vscode/pull/340789", "+487 \u2212527 \u00b7 15 files"],
+  ["l2beat/l2beat/pull/13157", "mostly additions"],
+  ["denoland/deno/pull/36907", "mixed"],
+  ["microsoft/vscode/pull/340789", "balanced add and delete"],
 ];
 
 export function mountLanding(root: HTMLElement): void {
