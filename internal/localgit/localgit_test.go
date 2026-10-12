@@ -122,6 +122,51 @@ func TestSnapshotBaseSelection(t *testing.T) {
 	}
 }
 
+// Methodology: origin/HEAD is written by hand as a symbolic ref, the way a
+// clone leaves it, so no remote is needed.
+func TestSnapshotBaseFromOriginHEAD(t *testing.T) {
+	root := newRepository(t)
+	writeFile(t, root, "a.txt", "a\n")
+	gitCommand(t, root, "add", ".")
+	gitCommand(t, root, "commit", "-q", "-m", "base")
+	gitCommand(t, root, "update-ref", "refs/remotes/origin/main", "HEAD")
+	gitCommand(t, root, "update-ref", "refs/remotes/origin/develop", "HEAD")
+	repository, err := Open(context.Background(), root, "")
+	check(t, err)
+
+	gitCommand(t, root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop")
+	snapshot, err := repository.Snapshot(context.Background())
+	check(t, err)
+	if snapshot.BaseRef != "origin/develop" {
+		t.Fatalf("origin/HEAD names origin/develop: base = %q", snapshot.BaseRef)
+	}
+
+	// A clone made before the remote renamed master to main, then pruned.
+	gitCommand(t, root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master")
+	snapshot, err = repository.Snapshot(context.Background())
+	check(t, err)
+	if snapshot.BaseRef != "origin/main" {
+		t.Fatalf("origin/HEAD names a deleted ref: base = %q", snapshot.BaseRef)
+	}
+}
+
+func TestSnapshotUnrelatedHistory(t *testing.T) {
+	root := newRepository(t)
+	writeFile(t, root, "a.txt", "a\n")
+	gitCommand(t, root, "add", ".")
+	gitCommand(t, root, "commit", "-q", "-m", "base")
+	gitCommand(t, root, "switch", "-q", "--orphan", "island")
+	writeFile(t, root, "b.txt", "b\n")
+	gitCommand(t, root, "add", ".")
+	gitCommand(t, root, "commit", "-q", "-m", "island")
+
+	repository, err := Open(context.Background(), root, "")
+	check(t, err)
+	if _, err := repository.Snapshot(context.Background()); err == nil || !strings.Contains(err.Error(), "main and HEAD share no history") {
+		t.Fatalf("orphan branch: error = %v", err)
+	}
+}
+
 func TestOpenRejectsDirectoryOutsideRepository(t *testing.T) {
 	requireGit(t)
 	if _, err := Open(context.Background(), t.TempDir(), ""); err == nil {

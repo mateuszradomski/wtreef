@@ -89,20 +89,17 @@ func (repository *Repository) Snapshot(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	mergeBase, err := repository.git(ctx, "merge-base", baseRef, "HEAD")
+	baseSHA, err := repository.mergeBase(ctx, baseRef)
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("%s and HEAD share no history", baseRef)
+		return Snapshot{}, err
 	}
 	snapshot := Snapshot{
 		Name:    filepath.Base(repository.root),
 		Root:    repository.root,
 		HeadRef: repository.headRef(ctx),
 		BaseRef: baseRef,
-		BaseSHA: strings.TrimSpace(string(mergeBase)),
+		BaseSHA: baseSHA,
 		HeadSHA: headSHA,
-	}
-	if !isObjectName(snapshot.BaseSHA) {
-		return Snapshot{}, fmt.Errorf("git merge-base printed %q", snapshot.BaseSHA)
 	}
 	untracked, err := repository.untrackedPaths(ctx)
 	if err != nil {
@@ -128,7 +125,9 @@ func (repository *Repository) Snapshot(ctx context.Context) (Snapshot, error) {
 }
 
 // resolveBase prefers the ref given on the command line, then the remote's
-// default branch, then the usual names.
+// default branch, then the usual names. origin/HEAD is set once at clone time
+// and never updated by fetch, so after the remote renames its default branch
+// it can name a ref that no longer exists; such a target is skipped.
 func (repository *Repository) resolveBase(ctx context.Context) (string, error) {
 	if repository.base != "" {
 		if _, err := repository.revParse(ctx, repository.base+"^{commit}"); err != nil {
@@ -138,7 +137,9 @@ func (repository *Repository) resolveBase(ctx context.Context) (string, error) {
 	}
 	if output, err := repository.git(ctx, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err == nil {
 		if ref := strings.TrimSpace(string(output)); ref != "" {
-			return ref, nil
+			if _, err := repository.revParse(ctx, ref+"^{commit}"); err == nil {
+				return ref, nil
+			}
 		}
 	}
 	for _, candidate := range baseCandidates {
@@ -147,6 +148,24 @@ func (repository *Repository) resolveBase(ctx context.Context) (string, error) {
 		}
 	}
 	return "", errors.New("could not find a base branch (tried origin/HEAD, origin/main, origin/master, main, master); pass -base")
+}
+
+// mergeBase tells unrelated histories (exit status 1, nothing printed) apart
+// from git failing, so a failure is not reported as missing history.
+func (repository *Repository) mergeBase(ctx context.Context, baseRef string) (string, error) {
+	output, err := repository.git(ctx, "merge-base", baseRef, "HEAD")
+	if err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) && exitError.ExitCode() == 1 {
+			return "", fmt.Errorf("%s and HEAD share no history", baseRef)
+		}
+		return "", err
+	}
+	sha := strings.TrimSpace(string(output))
+	if !isObjectName(sha) {
+		return "", fmt.Errorf("git merge-base printed %q", sha)
+	}
+	return sha, nil
 }
 
 func (repository *Repository) headRef(ctx context.Context) string {
