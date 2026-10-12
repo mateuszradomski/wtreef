@@ -1,11 +1,14 @@
 // Stages the npm packages in bin/npm: one per platform holding its binary,
 // and wtreef itself, which lists all of them as optional dependencies so npm
-// installs only the one whose os and cpu match (esbuild's layout). Run it
-// through `make npm VERSION=x.y.z`, which builds the frontend first so the
-// binaries embed it.
+// installs only the one whose os and cpu match (esbuild's layout). wtreef also
+// carries checksums.json, each binary's SHA-256, so its launcher can download
+// a platform package npm skipped and trust it. Run it through
+// `make npm VERSION=x.y.z`, which builds the frontend first so the binaries
+// embed it.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const TARGETS = [
@@ -29,6 +32,7 @@ if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) {
 
 rmSync(OUTPUT, { recursive: true, force: true });
 
+const checksums = {};
 for (const target of TARGETS) {
   const name = `${SCOPE}/${target.os}-${target.cpu}`;
   const directory = join(OUTPUT, `${target.os}-${target.cpu}`);
@@ -38,6 +42,7 @@ for (const target of TARGETS) {
     stdio: "inherit",
     env: { ...process.env, GOOS: target.goos, GOARCH: target.goarch, CGO_ENABLED: "0" },
   });
+  checksums[`${target.os}-${target.cpu}`] = createHash("sha256").update(readFileSync(binary)).digest("hex");
   copyFileSync("LICENSE", join(directory, "LICENSE"));
   writeJson(join(directory, "package.json"), {
     name,
@@ -53,7 +58,8 @@ for (const target of TARGETS) {
 
 const main = join(OUTPUT, "wtreef");
 mkdirSync(join(main, "bin"), { recursive: true });
-copyFileSync("npm/wtreef/bin/wtreef.js", join(main, "bin", "wtreef.js"));
+copyFileSync("npm/wtreef/bin/wtreef.cjs", join(main, "bin", "wtreef.cjs"));
+writeJson(join(main, "checksums.json"), checksums);
 copyFileSync("README.md", join(main, "README.md"));
 copyFileSync("LICENSE", join(main, "LICENSE"));
 writeJson(join(main, "package.json"), {
@@ -61,7 +67,7 @@ writeJson(join(main, "package.json"), {
   version,
   description: DESCRIPTION,
   license: LICENSE,
-  bin: { wtreef: "bin/wtreef.js" },
+  bin: { wtreef: "bin/wtreef.cjs" },
   engines: { node: ">=18" },
   optionalDependencies: Object.fromEntries(TARGETS.map((target) => [`${SCOPE}/${target.os}-${target.cpu}`, version])),
 });

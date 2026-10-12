@@ -35,7 +35,9 @@ PR URL:
   tells the page which mode it is in through `<meta name="wtreef-mode">`.
 - **Contract**: [`docs/wire-format.md`](docs/wire-format.md).
 - **npm package** (`npm/`): a launcher plus one optional package per
-  platform holding the prebuilt binary, as esbuild does it.
+  platform holding the prebuilt binary, as esbuild does it. npm skips an
+  optional package it cannot fetch, so the launcher downloads a missing one
+  from the registry and checks it against the SHA-256 recorded at build time.
 
 ## Develop
 
@@ -52,3 +54,6 @@ PR URL:
 
     make npm VERSION=0.1.0     # stages bin/npm/*: wtreef and @wtreef/<platform>
     make npm-publish           # platform packages first, then wtreef
+
+Publish exactly what one `make npm` staged: wtreef's checksums.json pins the
+platform binaries of that build, and a rebuild differs (Go embeds the commit).

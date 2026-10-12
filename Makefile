@@ -33,7 +33,7 @@ npm-publish:
 
 test:
 	go test ./...
-	node --test 'web/src/**/*.test.ts'
+	node --test 'web/src/**/*.test.ts' 'npm/**/*.test.cjs'
 
 check:
 	gofmt -l . | (! grep .)
