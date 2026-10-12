@@ -116,13 +116,11 @@ function createRow(tree: Tree, index: TreeIndex, node: number, input: FileListIn
 
   const additions = tree.additions[node] ?? 0;
   const deletions = tree.deletions[node] ?? 0;
-  const churn = append(
-    element("span", "file-churn mono"),
-    element("span", additions === 0 ? "list-additions is-zero" : "list-additions", formatAdditions(additions)),
-    element("span", deletions === 0 ? "list-deletions is-zero" : "list-deletions", formatDeletions(deletions)),
-  );
+  const additionsElement = element("span", additions === 0 ? "file-additions is-zero" : "file-additions", formatAdditions(additions));
+  const deletionsElement = element("span", deletions === 0 ? "file-deletions is-zero" : "file-deletions", formatDeletions(deletions));
   row.setAttribute("aria-label", `${statusLabel(status)} ${path}, ${additions} added, ${deletions} deleted. Opens the diff on GitHub.`);
-  return append(row, letter, pathElement, churn, createChurnBar(additions, deletions, index.churnMax)) as HTMLAnchorElement;
+  append(row, letter, pathElement, additionsElement, deletionsElement, createChurnBar(additions, deletions, index.churnMax));
+  return row;
 }
 
 /** Length encodes churn on the same log scale as tile intensity; the split encodes added vs deleted. */

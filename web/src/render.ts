@@ -114,8 +114,13 @@ const LABEL = {
 } as const;
 const HEADER_BASELINE_Y = 12;
 const HATCH_SPACING_PX = 6;
-/** Non-matching tiles keep their shape but fade toward the frame. */
-const SEARCH_DIM_ALPHA = 0.18;
+/**
+ * Non-matching tiles keep their shape but fade toward the frame and lose
+ * their labels (faded text stays half-legible depending on its ink, which
+ * reads as noise). Folder names stay readable so the structure remains.
+ */
+const SEARCH_DIM_ALPHA = 0.2;
+const SEARCH_DIM_HEADER_ALPHA = 0.5;
 
 export function drawBase(context: CanvasRenderingContext2D, scene: Scene, pixelRatio: number): void {
   const { layout, tree } = scene;
@@ -128,13 +133,18 @@ export function drawBase(context: CanvasRenderingContext2D, scene: Scene, pixelR
     const node = layout.drawOrder[order] ?? 0;
     if (node === layout.rootNode) continue;
     const dimmed = scene.searchActive && scene.searchMatches[node] === 0;
-    context.globalAlpha = dimmed ? SEARCH_DIM_ALPHA : 1;
     const flags = layout.flags[node] ?? 0;
+    context.globalAlpha = dimmed ? SEARCH_DIM_ALPHA : 1;
     if (tree.kinds[node] === NodeKind.directory && (flags & LayoutFlag.open) !== 0) {
       // A chained folder has no frame of its own: its chain top drew it.
-      if ((flags & LayoutFlag.chained) === 0) drawFrame(context, scene, node);
+      if ((flags & LayoutFlag.chained) !== 0) continue;
+      drawFrame(context, scene, node);
+      if ((flags & LayoutFlag.header) === 0) continue;
+      context.globalAlpha = dimmed ? SEARCH_DIM_HEADER_ALPHA : 1;
+      drawFrameHeader(context, scene, node);
     } else {
       drawTile(context, scene, node);
+      if (!dimmed) drawTileLabel(context, scene, node);
     }
   }
   context.globalAlpha = 1;
@@ -152,7 +162,13 @@ function drawFrame(context: CanvasRenderingContext2D, scene: Scene, node: number
   context.strokeStyle = palette.frameLine;
   context.lineWidth = 1;
   context.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1);
-  if (((layout.flags[node] ?? 0) & LayoutFlag.header) === 0) return;
+}
+
+function drawFrameHeader(context: CanvasRenderingContext2D, scene: Scene, node: number): void {
+  const { layout, palette } = scene;
+  const x = layout.rects[node * 4] ?? 0;
+  const y = layout.rects[node * 4 + 1] ?? 0;
+  const width = layout.rects[node * 4 + 2] ?? 0;
   context.font = `${LABEL.nameSizePx}px ${palette.fontSans}`;
   context.fillStyle = palette.frameText;
   const label = fitText(context, chainLabel(scene, node), width - 2 * LABEL.paddingX);
@@ -181,6 +197,15 @@ function drawTile(context: CanvasRenderingContext2D, scene: Scene, node: number)
   context.fillStyle = scene.styles.fills[node] ?? scene.palette.canvas;
   context.fillRect(x, y, width, height);
   if (tree.kinds[node] === NodeKind.rest) drawHatch(context, scene.palette.tileRestHatch, x, y, width, height);
+}
+
+function drawTileLabel(context: CanvasRenderingContext2D, scene: Scene, node: number): void {
+  const { layout } = scene;
+  const offset = node * 4;
+  const x = layout.rects[offset] ?? 0;
+  const y = layout.rects[offset + 1] ?? 0;
+  const width = layout.rects[offset + 2] ?? 0;
+  const height = layout.rects[offset + 3] ?? 0;
   if (width < LABEL.widthMin || height < LABEL.heightMin) return;
   const [name, detail] = tileLabelLines(scene, node);
   context.fillStyle = scene.styles.inks[node] ?? scene.palette.contextText;

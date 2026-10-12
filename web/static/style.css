@@ -90,10 +90,10 @@
     --diff-delete: #cd5f5f;
     --diff-mixed: #959598;
 
-    --tile-file: #ebeae7;
-    --tile-collapsed: #e1dfdb;
-    --tile-rest: #f3f2f0;
-    --tile-rest-hatch: #d9d6d1;
+    --tile-file: #eae9e5;
+    --tile-collapsed: #f1f0ed;
+    --tile-rest: #f4f3f1;
+    --tile-rest-hatch: #dcd9d4;
     --tile-renamed: #c9cbef;
     --frame: #fafaf9;
     --frame-line: #e4e3e0;
@@ -283,13 +283,11 @@ input {
   white-space: nowrap;
 }
 
-.pr-additions,
-.list-additions {
+.pr-additions {
   color: var(--status-added-ink);
 }
 
-.pr-deletions,
-.list-deletions {
+.pr-deletions {
   color: var(--status-deleted-ink);
 }
 
@@ -626,8 +624,13 @@ input {
   font-size: var(--text-meta);
 }
 
+/* One grid for the whole list; rows are subgrids, so the number columns align across files. */
 .file-list {
   flex: 1 1 auto;
+  display: grid;
+  /* The first track includes the row's 8px left padding, which a subgrid places inside its edge tracks. */
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  align-content: start;
   min-height: 0;
   margin: 0;
   padding: 0 8px 16px;
@@ -637,9 +640,14 @@ input {
   scrollbar-color: var(--line-2) transparent;
 }
 
+.file-list > li {
+  display: contents;
+}
+
 .file-row {
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
+  grid-template-columns: subgrid;
   grid-template-rows: auto 2px;
   align-items: baseline;
   gap: 4px 8px;
@@ -680,13 +688,17 @@ input {
 .file-path {
   display: flex;
   min-width: 0;
+  overflow: hidden;
   font-family: var(--font-mono);
   white-space: nowrap;
 }
 
-/* The directory gives way first, so the file name stays readable. */
+/*
+ * The directory gives way first, down to "x…", so the file name stays
+ * readable; only a name longer than the row is itself ellipsized.
+ */
 .file-directory {
-  flex: 0 1000 auto;
+  flex: 0 1 auto;
   min-width: 2ch;
   overflow: hidden;
   color: var(--fg-3);
@@ -695,25 +707,40 @@ input {
 
 .file-name {
   flex: 0 0 auto;
-  max-width: 100%;
+  max-width: calc(100% - 2ch);
   overflow: hidden;
   color: var(--fg);
   text-overflow: ellipsis;
 }
 
-.file-churn {
-  display: flex;
-  gap: 6px;
-  font-size: var(--text-meta);
+.file-name:only-child {
+  max-width: 100%;
 }
 
-.file-churn .is-zero {
+.file-additions,
+.file-deletions {
+  justify-self: end;
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.file-additions {
+  color: var(--status-added-ink);
+}
+
+.file-deletions {
+  color: var(--status-deleted-ink);
+}
+
+.file-additions.is-zero,
+.file-deletions.is-zero {
   color: var(--fg-3);
 }
 
 /* Under the numbers, like a diffstat: length is log churn, the split is added vs deleted. */
 .churn-bar {
-  grid-column: 3;
+  grid-column: 3 / -1;
   display: flex;
   justify-content: flex-end;
   height: 2px;
