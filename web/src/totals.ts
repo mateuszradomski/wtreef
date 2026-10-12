@@ -26,15 +26,20 @@ export interface HeaderTotals extends ChangeTotals {
 /**
  * True when some filter can take a changed file off the map. Size mode and
  * Unchanged only decide how unchanged files are drawn, and an invalid
- * pattern is ignored, so none of them count.
+ * pattern is ignored, so none of them count. Neither does hiding unchanged
+ * context, for the same reason as Unchanged: only hidden nodes with a
+ * changed file below them count.
  */
-export function filtersHideChangedFiles(filters: Filters): boolean {
+export function filtersHideChangedFiles(filters: Filters, index: TreeIndex): boolean {
   if (filters.hiddenStatuses !== 0) return true;
   if (filters.hiddenTypes.size > 0) return true;
   if (!filters.showGenerated) return true;
   if (activeRegex(filters.include) !== null) return true;
   if (activeRegex(filters.exclude) !== null) return true;
-  return filters.hiddenNodes.size > 0;
+  for (const node of filters.hiddenNodes) {
+    if ((index.subtreeChangedFiles[node] ?? 0) > 0) return true;
+  }
+  return false;
 }
 
 /** Sums the changed files that pass the filters: those that weigh something. Weights never depend on the zoom. */
@@ -53,9 +58,9 @@ export function sumShownChanges(tree: Tree, index: TreeIndex, weights: Float64Ar
   return { additions, deletions, files };
 }
 
-export function describeHeaderTotals(pullRequest: PullRequest, filters: Filters, shown: ChangeTotals): HeaderTotals {
+export function describeHeaderTotals(pullRequest: PullRequest, index: TreeIndex, filters: Filters, shown: ChangeTotals): HeaderTotals {
   const whole = plural(pullRequest.changedFiles, "file", "files");
-  if (!filtersHideChangedFiles(filters)) {
+  if (!filtersHideChangedFiles(filters, index)) {
     return {
       additions: pullRequest.additions,
       deletions: pullRequest.deletions,

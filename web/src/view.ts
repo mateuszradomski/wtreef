@@ -354,7 +354,7 @@ function runDomUpdates(view: View): void {
   if (state.totalsDirty) {
     assert(!state.weightsDirty, "totals are summed over the weights for the current filters");
     const shown = sumShownChanges(state.tree, state.index, state.weights);
-    syncHeaderTotals(view.header, describeHeaderTotals(state.data.pullRequest, state.filters, shown));
+    syncHeaderTotals(view.header, describeHeaderTotals(state.data.pullRequest, state.index, state.filters, shown));
     state.totalsDirty = false;
   }
   if (state.listDirty) {
