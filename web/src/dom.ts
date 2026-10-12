@@ -35,3 +35,15 @@ export function append(parent: HTMLElement, ...children: ReadonlyArray<HTMLEleme
   }
   return parent;
 }
+
+/**
+ * A path whose folders give way first when space runs out (see .file-path in
+ * style.css), so the name stays readable. A folder keeps its trailing "/".
+ */
+export function pathText(className: string, path: string): HTMLElement {
+  const slash = path.lastIndexOf("/", path.length - 2);
+  const text = element("span", className === "" ? "file-path" : `file-path ${className}`);
+  if (slash >= 0) text.append(element("span", "file-directory", path.slice(0, slash + 1)));
+  text.append(element("span", "file-name", path.slice(slash + 1)));
+  return text;
+}

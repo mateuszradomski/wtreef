@@ -7,6 +7,7 @@
 import { assert } from "./assert.ts";
 import { churnIntensity } from "./color.ts";
 import type { Tree } from "./decode.ts";
+import type { MenuOpening } from "./context-menu.ts";
 import { append, element, link } from "./dom.ts";
 import type { FilterSection } from "./filter-section.ts";
 import {
@@ -23,6 +24,7 @@ import {
   TreeKeyKind,
 } from "./file-tree.ts";
 import { formatAdditions, formatCount, formatDeletions, plural } from "./format.ts";
+import { attachLongPress, isLongPressClick, longPressOpenedMenu } from "./long-press.ts";
 import type { TreeIndex } from "./model.ts";
 import { createSegmented, type Segmented, type SegmentedOption, syncSegmented } from "./segmented.ts";
 import { statusClassName, statusLabel, statusLetter, statusOf } from "./status.ts";
@@ -34,6 +36,9 @@ const LIST_ROWS_MAX = 400;
 const TREE_ROWS_MAX = 2000;
 const NO_NODE = -1;
 const HEADING_ID = "changed-files-heading";
+const ROW_SELECTOR = ".file-row, .tree-row";
+/** A menu opened from the keyboard has no pointer to open at; it opens under the row, this far in from its end. */
+const KEYBOARD_MENU_INSET_PX = 16;
 
 const FILE_VIEW_OPTIONS: readonly SegmentedOption<FileView>[] = [
   { value: FileView.tree, label: "Tree", description: "Changed files in their folders" },
@@ -45,6 +50,10 @@ export interface SidebarCallbacks {
   readonly onLeaveRows: () => void;
   readonly onFileView: (fileView: FileView) => void;
   readonly onFolderExpanded: (chainTop: number, chainEnd: number, expanded: boolean) => void;
+  /** Right-click, long press or the context menu key on a row. */
+  readonly onRowMenu: (node: number, opening: MenuOpening) => void;
+  /** Alt-click on a row. */
+  readonly onHideRow: (node: number) => void;
 }
 
 export interface Sidebar {
@@ -120,33 +129,91 @@ export function createSidebar(filter: FilterSection, tree: Tree, index: TreeInde
     highlightedRow: null,
     activeTreeNode: NO_NODE,
   };
-  attachHoverEvents(list, ".file-row", callbacks);
-  attachHoverEvents(treeView, ".tree-row", callbacks);
+  for (const container of [list, treeView]) {
+    attachHoverEvents(container, callbacks);
+    attachRowActionEvents(container, callbacks);
+  }
   attachTreeEvents(sidebar, callbacks);
   return sidebar;
 }
 
 /**
- * Delegated listeners: one set per container instead of one per row. A row
- * names its node: a file, or the last folder of a tree row's chain, whose
- * frame the map outlines.
+ * The node a list or tree row names, for the row containing `target`: a
+ * file, or the last folder of a tree row's chain, whose frame the map
+ * outlines. NO_NODE outside rows.
  */
-function attachHoverEvents(container: HTMLElement, rowSelector: string, callbacks: SidebarCallbacks): void {
-  const rowNode = (target: EventTarget | null): number => {
-    if (!(target instanceof Element)) return NO_NODE;
-    const row = target.closest<HTMLElement>(rowSelector);
-    return row === null ? NO_NODE : Number(row.dataset["node"] ?? NO_NODE);
-  };
+export function rowNodeOf(target: EventTarget | null): number {
+  if (!(target instanceof Element)) return NO_NODE;
+  const row = target.closest<HTMLElement>(ROW_SELECTOR);
+  if (row === null) return NO_NODE;
+  const node = Number(row.dataset["node"] ?? NO_NODE);
+  assert(Number.isInteger(node) && node > 0, "rows name a file or folder below the root");
+  return node;
+}
+
+/** Delegated listeners: one set per container instead of one per row. */
+function attachHoverEvents(container: HTMLElement, callbacks: SidebarCallbacks): void {
   container.addEventListener("mouseover", (event) => {
-    const node = rowNode(event.target);
+    const node = rowNodeOf(event.target);
     if (node !== NO_NODE) callbacks.onHoverRow(node);
   });
   container.addEventListener("mouseleave", callbacks.onLeaveRows);
   container.addEventListener("focusin", (event) => {
-    const node = rowNode(event.target);
+    const node = rowNodeOf(event.target);
     if (node !== NO_NODE) callbacks.onHoverRow(node);
   });
   container.addEventListener("focusout", callbacks.onLeaveRows);
+}
+
+/**
+ * The secondary actions on a row: right-click, a long press or the context
+ * menu key open the menu, and Alt-click hides. Clicks are caught on the way
+ * down, so neither an Alt-click nor the click ending a long press reaches
+ * the row: it would follow the link (some browsers download a link on
+ * Alt-click) or open the folder.
+ */
+function attachRowActionEvents(container: HTMLElement, callbacks: SidebarCallbacks): void {
+  const press = attachLongPress(container, (point) => {
+    const node = rowNodeOf(point.target);
+    if (node !== NO_NODE) callbacks.onRowMenu(node, { clientX: point.clientX, clientY: point.clientY, byTouch: true });
+  });
+  container.addEventListener("contextmenu", (event) => {
+    const node = rowNodeOf(event.target);
+    if (node === NO_NODE) return;
+    event.preventDefault();
+    if (longPressOpenedMenu(press)) return;
+    const anchor = menuAnchor(event);
+    callbacks.onRowMenu(node, { clientX: anchor.x, clientY: anchor.y, byTouch: false });
+  });
+  container.addEventListener(
+    "click",
+    (event) => {
+      const node = rowNodeOf(event.target);
+      if (node === NO_NODE) return;
+      const endsLongPress = isLongPressClick(press);
+      if (!endsLongPress && !event.altKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!endsLongPress) callbacks.onHideRow(node);
+    },
+    { capture: true },
+  );
+}
+
+/**
+ * The pointer, or for the context menu key (no pointer, or one elsewhere)
+ * a point under the end of the focused row, so the menu flips back over
+ * the row rather than out over the map.
+ */
+function menuAnchor(event: MouseEvent): { x: number; y: number } {
+  assert(event.target instanceof Element, "context menus open on rows");
+  const row = event.target.closest(ROW_SELECTOR);
+  assert(row !== null, "context menus open on rows");
+  const rect = row.getBoundingClientRect();
+  const insideX = event.clientX >= rect.left && event.clientX <= rect.right;
+  const insideY = event.clientY >= rect.top && event.clientY <= rect.bottom;
+  if (insideX && insideY) return { x: event.clientX, y: event.clientY };
+  return { x: rect.right - KEYBOARD_MENU_INSET_PX, y: rect.bottom };
 }
 
 function attachTreeEvents(sidebar: Sidebar, callbacks: SidebarCallbacks): void {
@@ -215,6 +282,7 @@ export function syncFileViewChoice(sidebar: Sidebar, fileView: FileView): void {
 
 /** Rebuilds the rows of the chosen view; the other view's container is emptied and hidden. */
 export function renderChangedFiles(sidebar: Sidebar, input: ChangedFilesInput): void {
+  const focusedListRow = [...sidebar.rowByNode.values()].findIndex((row) => row === document.activeElement);
   sidebar.fileView = input.fileView;
   sidebar.highlightedRow = null;
   sidebar.rowByNode.clear();
@@ -231,6 +299,7 @@ export function renderChangedFiles(sidebar: Sidebar, input: ChangedFilesInput): 
   if (input.fileView === FileView.list) {
     sidebar.treeView.replaceChildren();
     matching = renderFileList(sidebar, input);
+    if (focusedListRow >= 0) focusListRow(sidebar, focusedListRow);
     if (matching > LIST_ROWS_MAX) {
       footer = `${formatCount(matching - LIST_ROWS_MAX)} more files. Narrow them down with the filters or a path pattern.`;
     }
@@ -262,6 +331,13 @@ function renderFileList(sidebar: Sidebar, input: ChangedFilesInput): number {
   assert(rows.length <= LIST_ROWS_MAX, "the list is bounded");
   sidebar.list.replaceChildren(...rows);
   return matching;
+}
+
+/** The row now at `position` takes focus, the last one past the end: a hidden or filtered-out row gives way to the next. */
+function focusListRow(sidebar: Sidebar, position: number): void {
+  const rows = [...sidebar.rowByNode.values()];
+  const row = rows[Math.min(position, rows.length - 1)];
+  row?.focus({ preventScroll: false });
 }
 
 function createListRow(node: number, input: ChangedFilesInput): HTMLAnchorElement {

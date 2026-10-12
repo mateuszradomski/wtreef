@@ -50,6 +50,8 @@
   --label-ink-light: #f4f4f5;
   --label-ink-dark: #0b0b0c;
   --hover-outline: #ededef;
+  /* Lifts floating surfaces (tooltips, the menu, the toast) off the map's tiles. */
+  --shadow-float: 0 8px 24px rgb(0 0 0 / 0.45);
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
@@ -100,6 +102,7 @@
     --label-ink-light: #ffffff;
     --label-ink-dark: #18181b;
     --hover-outline: #18181b;
+    --shadow-float: 0 6px 20px rgb(24 24 27 / 0.12);
   }
 }
 
@@ -189,6 +192,15 @@ input {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+/* A long press opens the menu, so it must not select text or open the system's own callout. */
+.map-overlay,
+.file-row,
+.tree-row {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .map-empty {
@@ -1222,6 +1234,154 @@ input {
   border-top: 1px solid var(--line-2);
   color: var(--fg-2);
   font-size: var(--text-meta);
+}
+
+/* The menu for one file or folder: the tooltip's surface, with items as full-width rows. */
+.context-menu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  min-width: 200px;
+  max-width: 320px;
+  padding: 4px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-float);
+  font-size: var(--text-control);
+}
+
+.context-menu-title {
+  margin-bottom: 4px;
+  padding: 3px 8px 7px;
+  border-bottom: 1px solid var(--line-2);
+  font-size: var(--text-meta);
+}
+
+/* fg-3 misses 4.5:1 on surface-2 in light, so the folders step up to fg-2 here. */
+.context-menu-title .file-directory,
+.toast .file-directory {
+  color: var(--fg-2);
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: none;
+  color: var(--fg);
+  font-size: var(--text-control);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Hover moves focus, so focus alone marks the current item, for the pointer and the keys alike. */
+.context-menu-item:focus {
+  outline: none;
+  background: var(--line-2);
+}
+
+.context-menu-shortcut {
+  padding: 0 4px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-small);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.context-menu-item:focus .context-menu-shortcut {
+  border-color: var(--fg-3);
+}
+
+/* A menu opened by a long press has no current item until one is touched. */
+.context-menu.is-touch .context-menu-item:focus:not(:active) {
+  background: none;
+}
+
+/* Fingers need taller targets. */
+@media (pointer: coarse) {
+  .context-menu-item {
+    height: 40px;
+  }
+}
+
+/* One message at a time, centered at the bottom of the map. The region is always there for screen readers; only the box shows. */
+.toast-region {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 560px;
+  height: 36px;
+  padding: 0 4px 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-float);
+  color: var(--fg-2);
+  font-size: var(--text-control);
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+.toast:not(:has(.toast-action)) {
+  padding-right: 12px;
+}
+
+.toast-text {
+  flex: none;
+}
+
+.toast.is-error .toast-text {
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--status-deleted-ink);
+  text-overflow: ellipsis;
+}
+
+.toast-separator {
+  flex: none;
+  color: var(--fg-2);
+}
+
+.toast-action {
+  flex: none;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: none;
+  color: var(--fg);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  background: var(--line-2);
+}
+
+.toast-action:focus-visible {
+  outline-offset: 0;
 }
 
 /* Narrow screens: the page scrolls, the map takes most of the first screen, the list follows. */
