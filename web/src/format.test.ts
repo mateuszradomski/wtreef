@@ -35,11 +35,12 @@ test("pluralizes", () => {
   assert.equal(plural(2, "file", "files"), "2 files");
 });
 
-test("formats retry waits", () => {
-  assert.equal(formatWait(0), "0 s");
-  assert.equal(formatWait(58.2), "59 s");
-  assert.equal(formatWait(59.2), "1 min");
-  assert.equal(formatWait(61), "2 min");
-  assert.equal(formatWait(3600), "1 h");
-  assert.equal(formatWait(3900), "1 h 5 min");
+test("formats retry waits, keeping numbers with their units", () => {
+  const space = "\u00a0";
+  assert.equal(formatWait(0), `0${space}s`);
+  assert.equal(formatWait(58.2), `59${space}s`);
+  assert.equal(formatWait(59.2), `1${space}min`);
+  assert.equal(formatWait(61), `2${space}min`);
+  assert.equal(formatWait(3600), `1${space}h`);
+  assert.equal(formatWait(3900), `1${space}h 5${space}min`);
 });

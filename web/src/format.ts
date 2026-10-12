@@ -6,6 +6,7 @@ const INTEGER_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
 const BYTES_PER_KILOBYTE = 1024;
 export const MINUS_SIGN = "−";
+const NO_BREAK_SPACE = " ";
 
 export function formatCount(count: number): string {
   assert(Number.isFinite(count), "count must be finite");
@@ -49,14 +50,15 @@ export function plural(count: number, singular: string, pluralForm: string): str
   return `${formatCount(count)} ${count === 1 ? singular : pluralForm}`;
 }
 
-/** "45 s", "3 min", "2 h 5 min": precise enough for a retry hint. */
+/** "45 s", "3 min", "2 h 5 min": precise enough for a retry hint. No-break spaces keep a number with its unit. */
 export function formatWait(seconds: number): string {
   assert(seconds >= 0, "waits are non-negative");
   const wholeSeconds = Math.ceil(seconds);
-  if (wholeSeconds < 60) return `${wholeSeconds} s`;
+  if (wholeSeconds < 60) return `${wholeSeconds}${NO_BREAK_SPACE}s`;
   const minutes = Math.ceil(wholeSeconds / 60);
-  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 60) return `${minutes}${NO_BREAK_SPACE}min`;
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
-  return remainder === 0 ? `${hours} h` : `${hours} h ${remainder} min`;
+  const hoursText = `${hours}${NO_BREAK_SPACE}h`;
+  return remainder === 0 ? hoursText : `${hoursText} ${remainder}${NO_BREAK_SPACE}min`;
 }
