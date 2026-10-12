@@ -25,7 +25,7 @@ const (
 	defaultListenAddress     = "127.0.0.1:8080"
 	defaultCacheBytesMax     = 2 << 30
 	cacheBytesMaxMin         = 1 << 20
-	defaultGitHubConcurrency = 4
+	defaultGitHubConcurrency = 16
 	githubConcurrencyMax     = 64
 	githubRequestTimeout     = 30 * time.Second
 	responseCacheEntriesMax  = 512

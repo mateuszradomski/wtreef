@@ -3,11 +3,15 @@ package github
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"wtreef/internal/pullrequest"
@@ -16,7 +20,10 @@ import (
 const (
 	filesPageSize = 100
 	// filesPagesMax matches GitHub's 3000-file cap on the files connection.
-	filesPagesMax            = 30
+	filesPagesMax = 30
+	// filesPagesInFlightMax leaves room in the client's shared request slots
+	// for other pull requests and trees while one huge pull request loads.
+	filesPagesInFlightMax    = 8
 	graphqlResponseBytesMax  = 8 << 20
 	graphqlErrorsLoggedMax   = 5
 	pullRequestURLPrefix     = "https://github.com/"
@@ -132,7 +139,18 @@ func (client *Client) FetchPullRequest(ctx context.Context, id pullrequest.ID) (
 		client.logger.Warn("github pull request metadata rejected", "pull_request", id.String(), "error", err)
 		return pullrequest.PullRequest{}, err
 	}
-	files, err := client.collectFiles(ctx, id, pull.HeadSHA, firstPage.PullRequest.Files)
+	firstFiles := firstPage.PullRequest.Files
+	pageCount := prefetchPageCount(firstFiles, pull.ChangedFiles)
+	// Every reason to skip prefetching a multi-page connection means GitHub
+	// paginates unlike measured, which turns big pull requests slow again.
+	if pageCount == 0 && firstFiles != nil && firstFiles.PageInfo.HasNextPage {
+		client.logger.Warn("github files pagination is not offset-based, fetching sequentially", "pull_request", id.String())
+	}
+	prefetched, err := client.prefetchFilesPages(ctx, id, pull.HeadSHA, pageCount)
+	if err != nil {
+		return pullrequest.PullRequest{}, err
+	}
+	files, err := client.collectFiles(ctx, id, pull.HeadSHA, firstFiles, prefetched)
 	if err != nil {
 		return pullrequest.PullRequest{}, err
 	}
@@ -141,8 +159,97 @@ func (client *Client) FetchPullRequest(ctx context.Context, id pullrequest.ID) (
 	return pull, nil
 }
 
+// prefetchedPage is a files page fetched ahead of its predecessor, so it is
+// only trusted once the predecessor's endCursor proves it is the next page.
+type prefetchedPage struct {
+	cursor string
+	files  *graphqlFiles
+}
+
+// prefetchPageCount returns how many pages, the first included, the files
+// connection should span, or 0 when prefetching does not apply. GitHub's
+// files cursor is the unpadded base64 offset of the last file returned;
+// that is undocumented, so the first page's endCursor must confirm it.
+func prefetchPageCount(firstPage *graphqlFiles, changedFiles int64) int {
+	if firstPage == nil || !firstPage.PageInfo.HasNextPage {
+		return 0
+	}
+	if len(firstPage.Nodes) != filesPageSize {
+		return 0
+	}
+	cursor := firstPage.PageInfo.EndCursor
+	if cursor == nil || *cursor != filesCursor(filesPageSize) {
+		return 0
+	}
+	pageCount := (changedFiles + filesPageSize - 1) / filesPageSize
+	if pageCount < 2 {
+		return 0
+	}
+	return int(min(pageCount, filesPagesMax))
+}
+
+func filesCursor(offset int) string {
+	assert(offset > 0, "the first page has no cursor")
+	// Unpadded, as GitHub returns it: the walk compares cursors as strings.
+	return base64.RawStdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+// prefetchFilesPages fetches pages 1 through pageCount-1 concurrently,
+// bounded by filesPagesInFlightMax. Index 0 stays empty: the first page
+// arrived with the metadata. The first failure cancels the rest.
+func (client *Client) prefetchFilesPages(
+	ctx context.Context, id pullrequest.ID, headSHA pullrequest.CommitSHA, pageCount int,
+) ([]prefetchedPage, error) {
+	assert(pageCount >= 0, "page count is not negative")
+	assert(pageCount <= filesPagesMax, "page count is bounded by the page limit")
+	if pageCount < 2 {
+		return nil, nil
+	}
+	pages := make([]prefetchedPage, pageCount)
+	workContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var nextPageIndex atomic.Int32
+	var firstErrMutex sync.Mutex
+	var firstErr error
+	var workers sync.WaitGroup
+	for range min(filesPagesInFlightMax, pageCount-1) {
+		workers.Go(func() {
+			for {
+				pageIndex := int(nextPageIndex.Add(1))
+				if pageIndex >= pageCount {
+					return
+				}
+				cursor := filesCursor(pageIndex * filesPageSize)
+				files, err := client.fetchFilesPage(workContext, id, headSHA, &cursor)
+				if err != nil {
+					// Recorded before cancelling, so errors the cancellation
+					// causes in other workers never mask the original one.
+					firstErrMutex.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					firstErrMutex.Unlock()
+					cancel()
+					return
+				}
+				pages[pageIndex] = prefetchedPage{cursor: cursor, files: files}
+			}
+		})
+	}
+	workers.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	return pages, nil
+}
+
+// collectFiles walks the pages in order, taking each from prefetched when
+// the previous page's endCursor matches the cursor it was fetched with and
+// fetching it otherwise, so a wrong prefetch costs requests, never files.
 func (client *Client) collectFiles(
-	ctx context.Context, id pullrequest.ID, headSHA pullrequest.CommitSHA, firstPage *graphqlFiles,
+	ctx context.Context, id pullrequest.ID, headSHA pullrequest.CommitSHA,
+	firstPage *graphqlFiles, prefetched []prefetchedPage,
 ) ([]pullrequest.ChangedFile, error) {
 	files := make([]pullrequest.ChangedFile, 0, filesPageSize)
 	seenPaths := make(map[string]struct{}, filesPageSize)
@@ -175,16 +282,34 @@ func (client *Client) collectFiles(
 		if cursor == nil || *cursor == "" {
 			return nil, upstreamError(graphqlOperationName, "next page announced without a cursor")
 		}
-		nextPage, err := client.fetchRepositoryPage(ctx, id, pullRequestFilesPageQuery, cursor)
+		nextPageIndex := pageIndex + 1
+		if nextPageIndex < len(prefetched) && prefetched[nextPageIndex].cursor == *cursor {
+			page = prefetched[nextPageIndex].files
+			continue
+		}
+		nextPage, err := client.fetchFilesPage(ctx, id, headSHA, cursor)
 		if err != nil {
 			return nil, err
 		}
-		if nextPage.PullRequest.HeadRefOid != headSHA.String() {
-			return nil, upstreamError(graphqlOperationName, "head commit changed during pagination")
-		}
-		page = nextPage.PullRequest.Files
+		page = nextPage
 	}
 	return files, nil
+}
+
+// fetchFilesPage pins every page to the head commit of the first, so files
+// from two different head commits are never mixed.
+func (client *Client) fetchFilesPage(
+	ctx context.Context, id pullrequest.ID, headSHA pullrequest.CommitSHA, cursor *string,
+) (*graphqlFiles, error) {
+	assert(cursor != nil, "pages after the first have a cursor")
+	repository, err := client.fetchRepositoryPage(ctx, id, pullRequestFilesPageQuery, cursor)
+	if err != nil {
+		return nil, err
+	}
+	if repository.PullRequest.HeadRefOid != headSHA.String() {
+		return nil, upstreamError(graphqlOperationName, "head commit changed during pagination")
+	}
+	return repository.PullRequest.Files, nil
 }
 
 // fetchRepositoryPage returns a repository whose pullRequest is non-null.

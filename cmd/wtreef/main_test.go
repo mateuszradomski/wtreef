@@ -10,7 +10,7 @@ func TestParseOptionsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsed.listenAddress != "127.0.0.1:8080" || parsed.cacheBytesMax != 2<<30 || parsed.githubConcurrency != 4 ||
+	if parsed.listenAddress != "127.0.0.1:8080" || parsed.cacheBytesMax != 2<<30 || parsed.githubConcurrency != 16 ||
 		parsed.webDirectory != "" || parsed.clientIPHeader != "" {
 		t.Fatalf("defaults = %+v", parsed)
 	}
