@@ -1110,6 +1110,11 @@ input {
   font-variant-numeric: tabular-nums;
 }
 
+/* fg-3 is 4.46:1 on the light hover fill, so quiet text on a hovered or marked row steps up to fg-2. */
+.tree-row:is(:hover, .is-highlighted) :is(.tree-count, .file-directory, .is-zero) {
+  color: var(--fg-2);
+}
+
 .tree-row .churn-bar {
   grid-column: 2 / -1;
 }

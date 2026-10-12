@@ -221,7 +221,10 @@ export function renderChangedFiles(sidebar: Sidebar, input: ChangedFilesInput): 
   sidebar.treeRows.length = 0;
   sidebar.list.hidden = input.fileView !== FileView.list;
   sidebar.treeView.hidden = input.fileView !== FileView.tree;
-  sidebar.heading.textContent = input.zoomPath === "" ? "Changed files" : `Changed in ${input.zoomPath}/`;
+  // The heading shares its line with the count and the view toggle, so it names only the zoomed folder; the breadcrumbs and the title have the path.
+  const zoomName = input.zoomPath.slice(input.zoomPath.lastIndexOf("/") + 1);
+  sidebar.heading.textContent = input.zoomPath === "" ? "Changed files" : `Changed in ${zoomName}/`;
+  sidebar.heading.title = input.zoomPath === "" ? "" : `Changed in ${input.zoomPath}/`;
   const total = input.index.changedFiles.length;
   let matching = 0;
   let footer = "";
