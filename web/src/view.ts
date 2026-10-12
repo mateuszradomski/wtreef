@@ -117,11 +117,17 @@ export function mountPullRequestView(root: HTMLElement, data: PullRequestData, s
   attachMapEvents(view);
   attachWindowEvents(view);
   const mounted = view;
-  void computeDiffUrls(data.pullRequest, state.index, data.tree.nodeCount).then((urls) => {
-    mounted.state.diffUrls = urls;
-    mounted.state.listDirty = true;
-    requestFrame(mounted);
-  });
+  computeDiffUrls(data.pullRequest, state.index, data.tree.nodeCount).then(
+    (urls) => {
+      mounted.state.diffUrls = urls;
+      mounted.state.listDirty = true;
+      requestFrame(mounted);
+    },
+    (error: unknown) => {
+      // Links keep pointing at the files tab, which is still the right page.
+      console.error("wtreef: could not hash paths for diff anchors", error);
+    },
+  );
   requestFrame(view);
   return view;
 }
@@ -446,8 +452,9 @@ function activateNode(view: View, node: number): void {
   const { state } = view;
   if (node === NO_NODE) return;
   if (isChangedFile(state.tree, node)) {
-    const url = state.diffUrls[node] ?? "";
-    if (url !== "") window.open(url, "_blank", "noopener,noreferrer");
+    // Until the anchors are hashed (or if hashing failed), the files tab is the closest page.
+    const anchored = state.diffUrls[node] ?? "";
+    window.open(anchored === "" ? filesTabUrl(state.data.pullRequest) : anchored, "_blank", "noopener,noreferrer");
     return;
   }
   if (isDirectoryFrameHit(state.tree, state.layout, node)) zoomTo(view, chainEnd(state.layout, chainTop(state.tree, state.layout, node)));
