@@ -3,3 +3,4 @@
 /web/dist/*
 !/web/dist/.gitkeep
 .DS_Store
+/.claude/

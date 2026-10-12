@@ -123,6 +123,19 @@ GitHub's `COPIED` maps to `1`, `CHANGED` (mode change) maps to `2`.
 
 So the node count is bounded by `changedFiles + expandedDirectories × 34`.
 
+**Edge cases**
+
+- *File/directory collision*: a path can be a file on one side of the diff
+  and a directory on the other (`lib` deleted, `lib/x.ts` added). The
+  directory wins and the colliding changed file is dropped. An unchanged entry
+  whose name is taken is merged into its parent's rest node, so byte totals
+  stay correct.
+- *Sibling order* is unspecified. The server happens to emit depth-first with
+  children sorted by name and the rest node last; clients must not rely on it.
+- *Zero-byte leaves*: deleted files and submodules have `bytes == 0`. A client
+  sizing by bytes must give changed files a non-zero estimated area or they
+  disappear.
+
 ### Error responses
 
 All errors are JSON: `{ "error": "<code>", "message": "<human readable>" }`.
