@@ -68,9 +68,12 @@ test("summarizes statuses, types, churn and subtree totals", () => {
   assert.equal(index.subtreeChangedFiles[SRC], 5);
 });
 
+// Byte-based expectations below are only meaningful when sizing by context.
+const CONTEXT_FILTERS = { ...DEFAULT_FILTERS, sizeMode: SizeMode.context };
+
 test("context weights use bytes and estimate files without bytes", () => {
   const tree = loadTree(TINY_FIXTURE);
-  const weights = weightsFor(tree, DEFAULT_FILTERS);
+  const weights = weightsFor(tree, CONTEXT_FILTERS);
   assert.equal(weights[APP], 4200);
   assert.equal(weights[OLD], 85 * ESTIMATED_BYTES_PER_CHANGED_LINE);
   assert.equal(weights[RENAMED], 900);
@@ -95,20 +98,20 @@ test("churn weights count changed lines and drop context", () => {
 
 test("filters zero out leaves before aggregation", () => {
   const tree = loadTree(TINY_FIXTURE);
-  const noAdded = weightsFor(tree, { ...DEFAULT_FILTERS, hiddenStatuses: 1 << FileStatus.added });
+  const noAdded = weightsFor(tree, { ...CONTEXT_FILTERS, hiddenStatuses: 1 << FileStatus.added });
   assert.equal(noAdded[UTIL], 0);
   assert.equal(noAdded[MATH], 0);
 
-  const noTs = weightsFor(tree, { ...DEFAULT_FILTERS, hiddenTypes: new Set(["ts"]) });
+  const noTs = weightsFor(tree, { ...CONTEXT_FILTERS, hiddenTypes: new Set(["ts"]) });
   assert.equal(noTs[APP], 0);
   assert.equal(noTs[INDEX], 300, "type filters apply to changed files only");
 
-  const noContext = weightsFor(tree, { ...DEFAULT_FILTERS, showUnchanged: false });
+  const noContext = weightsFor(tree, { ...CONTEXT_FILTERS, showUnchanged: false });
   assert.equal(noContext[DOCS], 0);
   assert.equal(noContext[REST], 0);
   assert.equal(noContext[ROOT], 120000 + 2000 + 4200 + 3400 + 900 + 2300);
 
-  const noGenerated = weightsFor(tree, { ...DEFAULT_FILTERS, showGenerated: false });
+  const noGenerated = weightsFor(tree, { ...CONTEXT_FILTERS, showGenerated: false });
   assert.equal(noGenerated[LOCKFILE], 0);
   assert.equal(noGenerated[README], 2000);
 });

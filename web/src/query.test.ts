@@ -20,7 +20,7 @@ test("the default view serializes to an empty query", () => {
 test("round-trips every non-default value", () => {
   const query = {
     filters: {
-      sizeMode: SizeMode.churn,
+      sizeMode: SizeMode.context,
       hiddenStatuses: (1 << FileStatus.deleted) | (1 << FileStatus.renamed),
       hiddenTypes: new Set(["md", "(other)"]),
       showUnchanged: false,
@@ -30,7 +30,7 @@ test("round-trips every non-default value", () => {
     zoomPath: "packages/frontend",
   };
   const text = serializeViewQuery(query);
-  assert.match(text, /^\?size=churn&hide=deleted,renamed&hideType=%28other%29,md&unchanged=0&generated=0&q=/);
+  assert.match(text, /^\?size=context&hide=deleted,renamed&hideType=%28other%29,md&unchanged=0&generated=0&q=/);
   assert.match(text, /zoom=packages\/frontend$/);
   const parsed = parseViewQuery(text, KNOWN_TYPES);
   assert.ok(filtersEqual(parsed.filters, query.filters));
@@ -39,7 +39,7 @@ test("round-trips every non-default value", () => {
 
 test("ignores unknown and invalid values", () => {
   const parsed = parseViewQuery("?size=huge&hide=added,bogus&hideType=rs,ts&unchanged=maybe&zoom=/a/b/&extra=1", KNOWN_TYPES);
-  assert.equal(parsed.filters.sizeMode, SizeMode.context);
+  assert.equal(parsed.filters.sizeMode, DEFAULT_FILTERS.sizeMode);
   assert.equal(parsed.filters.hiddenStatuses, 1 << FileStatus.added);
   assert.deepEqual([...parsed.filters.hiddenTypes], ["ts"]);
   assert.equal(parsed.filters.showUnchanged, true);

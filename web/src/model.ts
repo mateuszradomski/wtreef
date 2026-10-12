@@ -74,7 +74,9 @@ export interface Filters {
 }
 
 export const DEFAULT_FILTERS: Filters = {
-  sizeMode: SizeMode.context,
+  // Churn keeps every change visible; context sizes by bytes, where a large
+  // unchanged folder can shrink the actual changes to nothing.
+  sizeMode: SizeMode.churn,
   hiddenStatuses: 0,
   hiddenTypes: new Set(),
   showUnchanged: true,

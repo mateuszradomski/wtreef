@@ -38,7 +38,7 @@ const STATUS_NAMES: ReadonlyArray<readonly [FileStatus, string]> = [
 export function parseViewQuery(search: string, knownTypeKeys: ReadonlySet<string>): ViewQuery {
   const parameters = new URLSearchParams(search);
   const filters: Filters = {
-    sizeMode: parameters.get(PARAMETER.size) === SizeMode.churn ? SizeMode.churn : SizeMode.context,
+    sizeMode: parseSizeMode(parameters.get(PARAMETER.size)),
     hiddenStatuses: parseHiddenStatuses(parameters.get(PARAMETER.hiddenStatuses)),
     hiddenTypes: parseHiddenTypes(parameters.get(PARAMETER.hiddenTypes), knownTypeKeys),
     showUnchanged: parameters.get(PARAMETER.unchanged) !== "0",
@@ -46,6 +46,12 @@ export function parseViewQuery(search: string, knownTypeKeys: ReadonlySet<string
     search: (parameters.get(PARAMETER.search) ?? "").slice(0, SEARCH_LENGTH_MAX),
   };
   return { filters, zoomPath: parseZoomPath(parameters.get(PARAMETER.zoom)) };
+}
+
+function parseSizeMode(value: string | null): SizeMode {
+  if (value === SizeMode.churn) return SizeMode.churn;
+  if (value === SizeMode.context) return SizeMode.context;
+  return DEFAULT_FILTERS.sizeMode;
 }
 
 function splitList(value: string | null): string[] {
