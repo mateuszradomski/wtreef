@@ -18,7 +18,7 @@ async function showPullRequest(root: HTMLElement, reference: PullRequestReferenc
   root.textContent = `Fetching ${reference.owner}/${reference.repo}#${reference.number} from GitHub…`;
   const result = await fetchPullRequestData(reference);
   if (result.kind === "loaded") {
-    mountPullRequestView(root, result.data);
+    mountPullRequestView(root, result.data, window.location.search);
   } else {
     root.textContent = `Could not load: ${result.kind}`;
   }

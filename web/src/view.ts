@@ -6,7 +6,7 @@
 import { assert } from "./assert.ts";
 import { NodeKind, type PullRequestData, type Tree } from "./decode.ts";
 import { computeDiffUrls } from "./diff.ts";
-import { element, requireElement } from "./dom.ts";
+import { append, element } from "./dom.ts";
 import { hitTest, isDirectoryFrameHit, NO_NODE } from "./hit.ts";
 import { computeLayout, createLayout, type Layout } from "./layout.ts";
 import {
@@ -16,10 +16,14 @@ import {
   computeWeights,
   DEFAULT_FILTERS,
   type Filters,
+  findDirectoryByPath,
   isChangedFile,
   type TreeIndex,
 } from "./model.ts";
+import { parseViewQuery, serializeViewQuery } from "./query.ts";
 import { type ChartPalette, computeTileStyles, drawBase, drawHighlight, readChartPalette, type TileStyles } from "./render.ts";
+import { createToolbar, syncToolbar, type Toolbar, type ToolbarCallbacks } from "./toolbar.ts";
+import { createBreadcrumbs, createHeader, createLegend, createTruncationBanner, renderBreadcrumbs } from "./ui.ts";
 
 export const HoverSource = { none: 0, canvas: 1, list: 2 } as const;
 export type HoverSource = (typeof HoverSource)[keyof typeof HoverSource];
@@ -52,6 +56,8 @@ export interface ViewState {
   baseDirty: boolean;
   pointerDirty: boolean;
   overlayDirty: boolean;
+  controlsDirty: boolean;
+  urlDirty: boolean;
   frameRequested: boolean;
 }
 
@@ -67,37 +73,84 @@ interface MapElements {
 export interface View {
   readonly state: ViewState;
   readonly map: MapElements;
+  readonly toolbar: Toolbar;
+  readonly crumbList: HTMLElement;
 }
 
-export function mountPullRequestView(root: HTMLElement, data: PullRequestData): View {
+export function mountPullRequestView(root: HTMLElement, data: PullRequestData, search: string): View {
+  const state = createState(data, search);
   const map = createMapElements();
-  root.replaceChildren(element("div", "pr-view"));
-  const shell = requireElement(root.firstElementChild, ".pr-view") as HTMLElement;
-  const main = element("div", "pr-main");
-  main.append(map.container);
-  shell.append(main);
+  // Toolbar callbacks need the view and the view holds the toolbar; the
+  // callbacks only run after mount, by which time `view` is assigned.
+  let view: View | null = null;
+  const toolbar = createToolbar(
+    state.index,
+    toolbarCallbacks(() => {
+      assert(view !== null, "toolbar events fire only after mount");
+      return view;
+    }),
+  );
+  const { nav, list } = createBreadcrumbs();
+  view = { state, map, toolbar, crumbList: list };
 
-  const view: View = { state: createState(data), map };
+  const shell = element("div", "pr-view");
+  shell.append(createHeader(data));
+  const banner = createTruncationBanner(data, state.index.changedFiles.length);
+  if (banner !== null) shell.append(banner);
+  shell.append(toolbar.root, append(element("div", "crumb-row"), nav, createLegend()));
+  shell.append(append(element("div", "pr-main"), map.container));
+  root.replaceChildren(shell);
+  document.title = `${data.pullRequest.owner}/${data.pullRequest.repo}#${data.pullRequest.number} · wtreef`;
+
   attachMapEvents(view);
   attachWindowEvents(view);
-  void computeDiffUrls(data.pullRequest, view.state.index, data.tree.nodeCount).then((urls) => {
-    view.state.diffUrls = urls;
+  const mounted = view;
+  void computeDiffUrls(data.pullRequest, state.index, data.tree.nodeCount).then((urls) => {
+    mounted.state.diffUrls = urls;
   });
   requestFrame(view);
   return view;
 }
 
-function createState(data: PullRequestData): ViewState {
+function toolbarCallbacks(getView: () => View): ToolbarCallbacks {
+  const update = (change: (filters: Filters) => Filters) => {
+    const view = getView();
+    applyFilters(view, change(view.state.filters));
+  };
+  return {
+    onSizeMode: (mode) => update((filters) => ({ ...filters, sizeMode: mode })),
+    onToggleStatus: (status) => update((filters) => ({ ...filters, hiddenStatuses: filters.hiddenStatuses ^ (1 << status) })),
+    onToggleType: (key) => update((filters) => ({ ...filters, hiddenTypes: toggledSet(filters.hiddenTypes, key) })),
+    onToggleUnchanged: () => update((filters) => ({ ...filters, showUnchanged: !filters.showUnchanged })),
+    onToggleGenerated: () => update((filters) => ({ ...filters, showGenerated: !filters.showGenerated })),
+    onSearch: (text) => update((filters) => ({ ...filters, search: text })),
+    onReset: () => update((filters) => ({ ...DEFAULT_FILTERS, sizeMode: filters.sizeMode })),
+  };
+}
+
+function toggledSet(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  const next = new Set(set);
+  if (next.has(key)) {
+    next.delete(key);
+  } else {
+    next.add(key);
+  }
+  return next;
+}
+
+function createState(data: PullRequestData, search: string): ViewState {
   const { tree } = data;
   const index = buildTreeIndex(tree);
   const palette = readChartPalette(readCssToken);
+  const query = parseViewQuery(search, new Set(index.typeBuckets.map((bucket) => bucket.key)));
+  const zoomNode = Math.max(0, findDirectoryByPath(tree, index, query.zoomPath));
   return {
     data,
     tree,
     index,
     diffUrls: [],
-    filters: DEFAULT_FILTERS,
-    zoomNode: 0,
+    filters: query.filters,
+    zoomNode,
     weights: new Float64Array(tree.nodeCount),
     searchMatches: new Uint8Array(tree.nodeCount),
     insideZoom: new Uint8Array(tree.nodeCount),
@@ -118,6 +171,9 @@ function createState(data: PullRequestData): ViewState {
     baseDirty: true,
     pointerDirty: false,
     overlayDirty: true,
+    controlsDirty: true,
+    // Rewrite the URL once so ignored or invalid parameters disappear from it.
+    urlDirty: true,
     frameRequested: false,
   };
 }
@@ -133,7 +189,7 @@ function createMapElements(): MapElements {
   base.setAttribute("aria-hidden", "true");
   overlay.setAttribute("role", "img");
   overlay.setAttribute("aria-label", "Treemap of the repository; changed files are colored. The file list is the accessible equivalent.");
-  const empty = element("div", "map-empty");
+  const empty = element("div", "map-empty", "No files match these filters.");
   empty.hidden = true;
   container.append(base, overlay, empty);
   const baseContext = base.getContext("2d", { alpha: false });
@@ -182,6 +238,22 @@ function runFrame(view: View): void {
     drawHighlight(view.map.overlayContext, state.layout, state.palette, state.hoveredNode, state.pixelRatio);
     state.overlayDirty = false;
   }
+  runDomUpdates(view);
+}
+
+function runDomUpdates(view: View): void {
+  const { state } = view;
+  if (state.controlsDirty) {
+    syncToolbar(view.toolbar, state.filters);
+    renderBreadcrumbs(view.crumbList, state.tree, state.zoomNode, state.data.pullRequest.repo, (node) => zoomTo(view, node));
+    state.controlsDirty = false;
+  }
+  if (state.urlDirty) {
+    const zoomPath = state.index.paths[state.zoomNode] ?? "";
+    const query = serializeViewQuery({ filters: state.filters, zoomPath });
+    history.replaceState(history.state, "", `${window.location.pathname}${query}`);
+    state.urlDirty = false;
+  }
 }
 
 function sceneOf(state: ViewState) {
@@ -206,7 +278,6 @@ function relayout(view: View): void {
   }
   computeLayout(state.tree, state.index, state.weights, state.zoomNode, state.width, state.height, state.layout);
   map.empty.hidden = state.layout.drawCount > 0 || state.width === 0;
-  map.empty.textContent = "No files match these filters.";
   state.overlayDirty = true;
 }
 
@@ -228,6 +299,29 @@ function isClickable(state: ViewState, node: number): boolean {
   if (node === NO_NODE) return false;
   if (isChangedFile(state.tree, node)) return true;
   return isDirectoryFrameHit(state.tree, state.layout, node);
+}
+
+/** Single entry point for filter changes: decides how much of the pipeline must rerun. */
+function applyFilters(view: View, next: Filters): void {
+  const { state } = view;
+  const previous = state.filters;
+  state.filters = next;
+  const onlySearchChanged = { ...previous, search: next.search };
+  if (next.search !== previous.search) state.searchDirty = true;
+  if (!shallowFiltersEqual(onlySearchChanged, next)) state.weightsDirty = true;
+  state.controlsDirty = true;
+  state.urlDirty = true;
+  requestFrame(view);
+}
+
+function shallowFiltersEqual(a: Filters, b: Filters): boolean {
+  return (
+    a.sizeMode === b.sizeMode &&
+    a.hiddenStatuses === b.hiddenStatuses &&
+    a.hiddenTypes === b.hiddenTypes &&
+    a.showUnchanged === b.showUnchanged &&
+    a.showGenerated === b.showGenerated
+  );
 }
 
 function attachMapEvents(view: View): void {
@@ -281,6 +375,8 @@ export function zoomTo(view: View, node: number): void {
   state.hoveredNode = NO_NODE;
   state.hoverSource = HoverSource.none;
   state.weightsDirty = true;
+  state.controlsDirty = true;
+  state.urlDirty = true;
   requestFrame(view);
 }
 
@@ -293,7 +389,14 @@ function zoomOut(view: View): void {
 function attachWindowEvents(view: View): void {
   const { state } = view;
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !isTypingTarget(event.target)) zoomOut(view);
+    if (isTypingTarget(event.target)) return;
+    if (event.key === "Escape") {
+      zoomOut(view);
+    } else if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      view.toolbar.search.focus();
+      view.toolbar.search.select();
+    }
   });
   const colorScheme = window.matchMedia("(prefers-color-scheme: light)");
   colorScheme.addEventListener("change", () => {
