@@ -161,15 +161,29 @@ func (nodes *Nodes) append(value node) {
 		assert(value.status == pullrequest.StatusUnchanged, "directories carry no status")
 	case KindFile:
 		assert(value.fileCount == 1, "a file counts once")
-		assert(value.name != "", "files are named")
+		assert(value.status >= pullrequest.StatusUnchanged, "file status is in range")
+		assert(value.status <= pullrequest.StatusRenamed, "file status is in range")
+		if value.status == pullrequest.StatusDeleted {
+			assert(value.bytes == 0, "deleted files have no bytes")
+		}
 	case KindCollapsedDirectory, KindRest:
 		assert(value.status == pullrequest.StatusUnchanged, "aggregates are unchanged")
 		assert(value.fileCount >= 1, "aggregates represent at least one file")
+	default:
+		panic("assertion failed: node kind is one of the four wire kinds")
 	}
-	assert((value.kind == KindRest) == (index > 0 && value.name == ""), "exactly rest nodes are unnamed")
+	if value.kind == KindRest {
+		assert(value.name == "", "rest nodes are unnamed")
+	} else if index > 0 {
+		assert(value.name != "", "every non-root node except rest is named")
+	} else {
+		assert(value.name == "", "the root is unnamed")
+	}
+	if value.status == pullrequest.StatusUnchanged {
+		assert(value.additions == 0, "unchanged nodes have no additions")
+		assert(value.deletions == 0, "unchanged nodes have no deletions")
+	}
 	assert(!strings.Contains(value.name, "/"), "names are single segments")
-	assert(value.status != pullrequest.StatusUnchanged || (value.additions == 0 && value.deletions == 0),
-		"unchanged nodes have no line changes")
 	assert(value.bytes >= 0, "bytes are not negative")
 	nodes.Names = append(nodes.Names, value.name)
 	nodes.Parents = append(nodes.Parents, value.parent)
