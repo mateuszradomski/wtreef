@@ -16,6 +16,7 @@ import {
   findDirectoryByPath,
   hasActiveCategoryFilters,
   isGeneratedPath,
+  presentStatusMask,
   SizeMode,
   TYPE_KEY_NONE,
   typeKeyOf,
@@ -67,6 +68,8 @@ test("summarizes statuses, types, churn and subtree totals", () => {
   assert.equal(index.subtreeDeletions[ROOT], 378);
   assert.equal(index.subtreeFiles[SRC], 1 + 1 + 1 + 1 + 12 + 7 + 2);
   assert.equal(index.subtreeChangedFiles[SRC], 5);
+  const everyChangedStatus = (1 << FileStatus.added) | (1 << FileStatus.modified) | (1 << FileStatus.deleted) | (1 << FileStatus.renamed);
+  assert.equal(presentStatusMask(index), everyChangedStatus);
 });
 
 // Byte-based expectations below are only meaningful when sizing by context.

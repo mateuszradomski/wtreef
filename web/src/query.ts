@@ -8,6 +8,13 @@ import { FileStatus } from "./decode.ts";
 import { DEFAULT_FILTERS, type Filters, SizeMode } from "./model.ts";
 import { EMPTY_PATH_PATTERN, PATH_PATTERN_LENGTH_MAX, type PathPattern, parsePathPattern, patternSource } from "./pattern.ts";
 
+/** What this PR has to filter by. A link may name statuses and types from another PR; those are dropped. */
+export interface FilterVocabulary {
+  readonly typeKeys: ReadonlySet<string>;
+  /** Bit `1 << status` set for each status at least one changed file has. */
+  readonly statusMask: number;
+}
+
 export interface ViewQuery {
   readonly filters: Filters;
   /** Path of the zoomed directory; "" is the repository root. */
@@ -36,12 +43,13 @@ const STATUS_NAMES: ReadonlyArray<readonly [FileStatus, string]> = [
   [FileStatus.renamed, "renamed"],
 ];
 
-export function parseViewQuery(search: string, knownTypeKeys: ReadonlySet<string>): ViewQuery {
+export function parseViewQuery(search: string, vocabulary: FilterVocabulary): ViewQuery {
   const parameters = new URLSearchParams(search);
   const filters: Filters = {
     sizeMode: parseSizeMode(parameters.get(PARAMETER.size)),
-    hiddenStatuses: parseHiddenStatuses(parameters.get(PARAMETER.hiddenStatuses)),
-    hiddenTypes: parseHiddenTypes(parameters.get(PARAMETER.hiddenTypes), knownTypeKeys),
+    // A hidden status with no files has no checkbox to show it again, so it would only keep Reset lit.
+    hiddenStatuses: parseHiddenStatuses(parameters.get(PARAMETER.hiddenStatuses)) & vocabulary.statusMask,
+    hiddenTypes: parseHiddenTypes(parameters.get(PARAMETER.hiddenTypes), vocabulary.typeKeys),
     showUnchanged: parameters.get(PARAMETER.unchanged) !== "0",
     showGenerated: parameters.get(PARAMETER.generated) !== "0",
     include: parsePatternParameter(parameters.get(PARAMETER.include)),

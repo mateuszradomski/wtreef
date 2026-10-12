@@ -19,6 +19,7 @@ import {
   filtersEqual,
   findDirectoryByPath,
   isChangedFile,
+  presentStatusMask,
   type TreeIndex,
   withDefaultCategoryFilters,
 } from "./model.ts";
@@ -174,7 +175,10 @@ function createState(data: PullRequestData, search: string): ViewState {
   const { tree } = data;
   const index = buildTreeIndex(tree);
   const palette = readChartPalette(readCssToken);
-  const query = parseViewQuery(search, new Set(index.typeBuckets.map((bucket) => bucket.key)));
+  const query = parseViewQuery(search, {
+    typeKeys: new Set(index.typeBuckets.map((bucket) => bucket.key)),
+    statusMask: presentStatusMask(index),
+  });
   const zoomNode = Math.max(0, findDirectoryByPath(tree, index, query.zoomPath));
   return {
     data,

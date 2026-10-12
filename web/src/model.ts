@@ -261,6 +261,16 @@ function churnWeightOfChangedFile(additions: number, deletions: number): number 
   return Math.max(additions + deletions, 1);
 }
 
+/** Bit `1 << status` for every status at least one changed file has. */
+export function presentStatusMask(index: TreeIndex): number {
+  let mask = 0;
+  for (let status = 0; status < index.statusCounts.length; status++) {
+    if ((index.statusCounts[status] ?? 0) > 0) mask |= 1 << status;
+  }
+  assert((mask & (1 << FileStatus.unchanged)) === 0, "only changed files are counted by status");
+  return mask;
+}
+
 /** Bitmask over type bucket indices, built once per filter change. */
 function hiddenTypeMask(index: TreeIndex, hiddenTypes: ReadonlySet<string>): number {
   let mask = 0;
