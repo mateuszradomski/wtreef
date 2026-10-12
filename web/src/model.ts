@@ -4,6 +4,7 @@
 
 import { assert } from "./assert.ts";
 import { FileStatus, NodeKind, type Tree } from "./decode.ts";
+import { isInsideHiddenSubtree, NO_HIDDEN_NODES } from "./hidden.ts";
 import { activeRegex, EMPTY_PATH_PATTERN, type PathPattern, patternSource } from "./pattern.ts";
 
 /** Changed files with no head bytes (deleted, or missing from a truncated tree) are sized from their churn. */
@@ -74,6 +75,8 @@ export interface Filters {
   readonly include: PathPattern;
   /** Drops files whose path matches, when valid. */
   readonly exclude: PathPattern;
+  /** Files and folders hidden one by one, with everything below them; see hidden.ts. */
+  readonly hiddenNodes: ReadonlySet<number>;
 }
 
 export const DEFAULT_FILTERS: Filters = {
@@ -86,6 +89,7 @@ export const DEFAULT_FILTERS: Filters = {
   showGenerated: true,
   include: EMPTY_PATH_PATTERN,
   exclude: EMPTY_PATH_PATTERN,
+  hiddenNodes: NO_HIDDEN_NODES,
 };
 
 export function isChangedFile(tree: Tree, node: number): boolean {
@@ -283,18 +287,26 @@ function hiddenTypeMask(index: TreeIndex, hiddenTypes: ReadonlySet<string>): num
 /**
  * Writes each node's weight under `filters` into `weights`: leaves first,
  * then one reverse pass sums children into directories. Filtered-out
- * leaves weigh 0, and zero-weight nodes are not laid out.
+ * leaves weigh 0, and zero-weight nodes are not laid out. A hidden folder
+ * weighs 0 because every leaf below it does, so it never reaches the layout.
  */
 export function computeWeights(tree: Tree, index: TreeIndex, filters: Filters, weights: Float64Array): void {
   assert(weights.length === tree.nodeCount, "weights must have one slot per node");
+  assert(!filters.hiddenNodes.has(0), "the root cannot be hidden");
   const typeMask = hiddenTypeMask(index, filters.hiddenTypes);
   const showContext = filters.showUnchanged && filters.sizeMode === SizeMode.context;
   const include = activeRegex(filters.include);
   const exclude = activeRegex(filters.exclude);
   for (let node = 0; node < tree.nodeCount; node++) {
     const weight = leafWeight(tree, index, node, filters, typeMask, showContext);
-    // Patterns run last and only on visible leaves: a regex test is the most expensive check here.
-    weights[node] = weight > 0 && !passesPathPatterns(tree, index, node, include, exclude) ? 0 : weight;
+    // Hidden subtrees and patterns run last and only on visible leaves: they walk ancestors and test regexes.
+    if (weight <= 0) {
+      weights[node] = 0;
+    } else if (isInsideHiddenSubtree(tree, filters.hiddenNodes, node)) {
+      weights[node] = 0;
+    } else {
+      weights[node] = passesPathPatterns(tree, index, node, include, exclude) ? weight : 0;
+    }
   }
   for (let node = tree.nodeCount - 1; node >= 1; node--) {
     weights[tree.parents[node] ?? 0]! += weights[node] ?? 0;
@@ -368,17 +380,25 @@ export function filtersEqual(a: Filters, b: Filters): boolean {
   if (a.showGenerated !== b.showGenerated) return false;
   if (patternSource(a.include) !== patternSource(b.include)) return false;
   if (patternSource(a.exclude) !== patternSource(b.exclude)) return false;
-  if (a.hiddenTypes.size !== b.hiddenTypes.size) return false;
-  for (const key of a.hiddenTypes) {
-    if (!b.hiddenTypes.has(key)) return false;
+  if (!setsEqual(a.hiddenTypes, b.hiddenTypes)) return false;
+  return setsEqual(a.hiddenNodes, b.hiddenNodes);
+}
+
+/** Same members, in any order: the order nodes were hidden in changes no weight. */
+function setsEqual<Item>(a: ReadonlySet<Item>, b: ReadonlySet<Item>): boolean {
+  if (a === b) return true;
+  if (a.size !== b.size) return false;
+  for (const item of a) {
+    if (!b.has(item)) return false;
   }
   return true;
 }
 
 /**
- * The category filters (status, type, unchanged, generated) back to their
- * defaults. They are the checkboxes of the Filter section, and its Reset
- * undoes exactly them: size mode and path patterns have their own controls.
+ * The category filters (status, type, unchanged, generated) and the hidden
+ * files and folders back to their defaults. They are what the Filter
+ * section shows, and its Reset undoes exactly them: size mode and path
+ * patterns have their own controls.
  */
 export function withDefaultCategoryFilters(filters: Filters): Filters {
   return {
@@ -387,6 +407,7 @@ export function withDefaultCategoryFilters(filters: Filters): Filters {
     hiddenTypes: DEFAULT_FILTERS.hiddenTypes,
     showUnchanged: DEFAULT_FILTERS.showUnchanged,
     showGenerated: DEFAULT_FILTERS.showGenerated,
+    hiddenNodes: DEFAULT_FILTERS.hiddenNodes,
   };
 }
 

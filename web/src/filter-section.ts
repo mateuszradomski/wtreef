@@ -50,7 +50,7 @@ export function createFilterSection(index: TreeIndex, callbacks: FilterSectionCa
   append(details, summary, groups);
   // Outside the summary: a button inside it would also toggle the section.
   const reset = button("text-button filter-reset", "Reset");
-  reset.title = "Show every status and type again";
+  reset.title = "Show every status, type, and hidden file and folder again";
   reset.addEventListener("click", callbacks.onReset);
   append(root, details, reset);
 

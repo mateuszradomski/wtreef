@@ -1,11 +1,12 @@
 // Methodology: the tiny fixture's numbers are small enough to compute by
 // hand, so each test states the expected weights explicitly. Then a
 // property check on the real fixture: every directory's weight equals the
-// sum of its children under every combination of filters.
+// sum of its children under every combination of filters, hidden folders
+// included.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodePullRequestData, FileStatus, type Tree } from "./decode.ts";
+import { decodePullRequestData, FileStatus, NodeKind, type Tree } from "./decode.ts";
 import {
   buildTreeIndex,
   computeSubtreeMembership,
@@ -13,6 +14,7 @@ import {
   DEFAULT_FILTERS,
   ESTIMATED_BYTES_PER_CHANGED_LINE,
   type Filters,
+  filtersEqual,
   findDirectoryByPath,
   hasActiveCategoryFilters,
   isGeneratedPath,
@@ -120,23 +122,61 @@ test("filters zero out leaves before aggregation", () => {
   assert.equal(noGenerated[README], 2000);
 });
 
+test("a hidden node weighs 0 with everything below it, before aggregation", () => {
+  const tree = loadTree(TINY_FIXTURE);
+  const weights = weightsFor(tree, { ...CONTEXT_FILTERS, hiddenNodes: new Set([UTIL, DOCS]) });
+  assert.equal(weights[UTIL], 0);
+  assert.equal(weights[MATH], 0);
+  assert.equal(weights[MATH_TEST], 0);
+  assert.equal(weights[DOCS], 0, "a collapsed folder hides like a file");
+  assert.equal(weights[SRC], 4200 + 3400 + 900 + 300 + 25000 + 9000, "the parent reflows without the hidden folder");
+  assert.equal(weights[ROOT], (weights[SRC] ?? 0) + 120000 + 2000 + 1069);
+  const hiddenSource = weightsFor(tree, { ...CONTEXT_FILTERS, hiddenNodes: new Set([SRC]) });
+  assert.deepEqual([hiddenSource[SRC], hiddenSource[APP], hiddenSource[REST]], [0, 0, 0], "rest nodes go with their folder");
+});
+
+test("hidden nodes compose with the other filters", () => {
+  const tree = loadTree(TINY_FIXTURE);
+  const hiddenMath = new Set([MATH]);
+  assert.deepEqual(visibleLeaves(tree, { ...DEFAULT_FILTERS, hiddenNodes: hiddenMath }), [LOCKFILE, README, APP, OLD, RENAMED, MATH_TEST]);
+  const noModified = { ...DEFAULT_FILTERS, hiddenStatuses: 1 << FileStatus.modified, hiddenNodes: hiddenMath };
+  assert.deepEqual(visibleLeaves(tree, noModified), [OLD, RENAMED, MATH_TEST]);
+  assert.deepEqual(visibleLeaves(tree, { ...withPatterns(DEFAULT_FILTERS, "^src/", "test"), hiddenNodes: new Set([OLD]) }), [APP, RENAMED, MATH]);
+  assert.deepEqual(visibleLeaves(tree, { ...DEFAULT_FILTERS, showGenerated: false, hiddenNodes: new Set([SRC]) }), [README]);
+  assert.ok(filtersEqual({ ...DEFAULT_FILTERS, hiddenNodes: new Set([MATH, OLD]) }, { ...DEFAULT_FILTERS, hiddenNodes: new Set([OLD, MATH]) }));
+  assert.ok(!filtersEqual({ ...DEFAULT_FILTERS, hiddenNodes: hiddenMath }, DEFAULT_FILTERS));
+});
+
 test("aggregation holds on the real fixture under every filter combination", () => {
   const tree = loadTree(REAL_FIXTURE);
   const index = buildTreeIndex(tree);
   const weights = new Float64Array(tree.nodeCount);
+  // The heaviest changed file, and the top-level folder above it.
+  const someFile = index.changedFiles[0] ?? 0;
+  let someFolder = someFile;
+  for (let depth = 0; depth < tree.nodeCount && (tree.parents[someFolder] ?? 0) !== 0; depth++) someFolder = tree.parents[someFolder] ?? 0;
+  assert.equal(tree.kinds[someFolder], NodeKind.directory);
   for (const sizeMode of [SizeMode.context, SizeMode.churn]) {
     for (const showUnchanged of [true, false]) {
       for (const hiddenStatuses of [0, 1 << FileStatus.added, 1 << FileStatus.modified]) {
-        computeWeights(tree, index, { ...DEFAULT_FILTERS, sizeMode, showUnchanged, hiddenStatuses }, weights);
-        const childSums = new Float64Array(tree.nodeCount);
-        for (let node = 1; node < tree.nodeCount; node++) childSums[tree.parents[node] ?? 0]! += weights[node] ?? 0;
-        for (let node = 0; node < tree.nodeCount; node++) {
-          if (tree.kinds[node] === 0) assert.equal(weights[node], childSums[node], `node ${node}`);
+        for (const hiddenNodes of [new Set<number>(), new Set([someFile]), new Set([someFolder])]) {
+          computeWeights(tree, index, { ...DEFAULT_FILTERS, sizeMode, showUnchanged, hiddenStatuses, hiddenNodes }, weights);
+          assertDirectoriesSumTheirChildren(tree, weights);
+          if (hiddenNodes.size > 0) assert.equal(weights[someFile], 0);
+          if (hiddenNodes.has(someFolder)) assert.equal(weights[someFolder], 0);
         }
       }
     }
   }
 });
+
+function assertDirectoriesSumTheirChildren(tree: Tree, weights: Float64Array): void {
+  const childSums = new Float64Array(tree.nodeCount);
+  for (let node = 1; node < tree.nodeCount; node++) childSums[tree.parents[node] ?? 0]! += weights[node] ?? 0;
+  for (let node = 0; node < tree.nodeCount; node++) {
+    if (tree.kinds[node] === NodeKind.directory) assert.equal(weights[node], childSums[node], `node ${node}`);
+  }
+}
 
 /** The leaves with weight under `filters`, in node order. */
 function visibleLeaves(tree: Tree, filters: Filters): number[] {
@@ -187,11 +227,9 @@ test("aggregation holds on the real fixture with path patterns", () => {
   for (const sizeMode of [SizeMode.context, SizeMode.churn]) {
     for (const [include, exclude] of patterns) {
       computeWeights(tree, index, withPatterns({ ...DEFAULT_FILTERS, sizeMode }, include, exclude), weights);
-      const childSums = new Float64Array(tree.nodeCount);
-      for (let node = 1; node < tree.nodeCount; node++) childSums[tree.parents[node] ?? 0]! += weights[node] ?? 0;
+      assertDirectoriesSumTheirChildren(tree, weights);
       for (let node = 0; node < tree.nodeCount; node++) {
-        if (tree.kinds[node] === 0) assert.equal(weights[node], childSums[node], `node ${node}`);
-        if (tree.kinds[node] === 0 || (weights[node] ?? 0) === 0) continue;
+        if (tree.kinds[node] === NodeKind.directory || (weights[node] ?? 0) === 0) continue;
         const path = index.paths[node] ?? "";
         if (include !== "") assert.match(path, new RegExp(include, "i"));
         if (exclude !== "") assert.doesNotMatch(path, new RegExp(exclude, "i"));
@@ -237,21 +275,24 @@ test("derives type keys from file names", () => {
   assert.equal(typeKeyOf("trailing."), TYPE_KEY_NONE);
 });
 
-test("category filters ignore size mode and path patterns, and reset to the defaults", () => {
+test("category filters ignore size mode and path patterns, and reset to the defaults with hidden nodes", () => {
   assert.equal(hasActiveCategoryFilters(DEFAULT_FILTERS), false);
   assert.equal(hasActiveCategoryFilters({ ...DEFAULT_FILTERS, sizeMode: SizeMode.context }), false);
   assert.equal(hasActiveCategoryFilters({ ...DEFAULT_FILTERS, include: parsePathPattern("x") }), false);
   assert.equal(hasActiveCategoryFilters({ ...DEFAULT_FILTERS, hiddenTypes: new Set(["md"]) }), true);
   assert.equal(hasActiveCategoryFilters({ ...DEFAULT_FILTERS, showUnchanged: false }), true);
+  assert.equal(hasActiveCategoryFilters({ ...DEFAULT_FILTERS, hiddenNodes: new Set([1]) }), true);
   const changed: Filters = {
     ...DEFAULT_FILTERS,
     sizeMode: SizeMode.context,
     hiddenStatuses: 1 << FileStatus.added,
     showGenerated: false,
     exclude: parsePathPattern("test"),
+    hiddenNodes: new Set([1, 4]),
   };
   const reset = withDefaultCategoryFilters(changed);
   assert.equal(hasActiveCategoryFilters(reset), false);
+  assert.equal(reset.hiddenNodes.size, 0);
   assert.equal(reset.sizeMode, SizeMode.context);
   assert.equal(reset.exclude, changed.exclude);
 });

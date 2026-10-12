@@ -2,18 +2,25 @@
 // Parsing is forgiving by design: unknown keys and invalid values are
 // ignored, because links outlive data (a type chip may not exist in a
 // different PR) and people edit URLs by hand.
+//
+// Hidden files and folders are node indices in the view and paths in the
+// URL, one repeated parameter each: `hidden=docs&hidden=README.md`. Paths
+// can contain commas, so they cannot share one comma-separated value.
 
 import { assert } from "./assert.ts";
 import { FileStatus } from "./decode.ts";
 import { FileView } from "./file-tree.ts";
+import { HIDDEN_NODES_MAX, HIDDEN_PATH_LENGTH_MAX } from "./hidden.ts";
 import { DEFAULT_FILTERS, type Filters, SizeMode } from "./model.ts";
 import { EMPTY_PATH_PATTERN, PATH_PATTERN_LENGTH_MAX, type PathPattern, parsePathPattern, patternSource } from "./pattern.ts";
 
-/** What this PR has to filter by. A link may name statuses and types from another PR; those are dropped. */
+/** What this PR has to filter by. A link may name statuses, types and paths from another PR; those are dropped. */
 export interface FilterVocabulary {
   readonly typeKeys: ReadonlySet<string>;
   /** Bit `1 << status` set for each status at least one changed file has. */
   readonly statusMask: number;
+  /** Every path that can be hidden, to its node; see buildHideableNodeByPath. */
+  readonly nodeByPath: ReadonlyMap<string, number>;
 }
 
 export interface ViewQuery {
@@ -34,6 +41,7 @@ const PARAMETER = {
   generated: "generated",
   include: "include",
   exclude: "exclude",
+  hidden: "hidden",
   zoom: "zoom",
   files: "files",
 } as const;
@@ -60,6 +68,7 @@ export function parseViewQuery(search: string, vocabulary: FilterVocabulary): Vi
     showGenerated: parameters.get(PARAMETER.generated) !== "0",
     include: parsePatternParameter(parameters.get(PARAMETER.include)),
     exclude: parsePatternParameter(parameters.get(PARAMETER.exclude)),
+    hiddenNodes: parseHiddenNodes(parameters.getAll(PARAMETER.hidden), vocabulary.nodeByPath),
   };
   return {
     filters,
@@ -116,11 +125,33 @@ function parsePatternParameter(value: string | null): PathPattern {
 function parseZoomPath(value: string | null): string {
   if (value === null) return "";
   if (value.length > ZOOM_PATH_LENGTH_MAX) return "";
-  return value.replace(/^\/+|\/+$/g, "");
+  return trimSlashes(value);
 }
 
-/** Returns "" for the default view, otherwise "?..." with only non-default values. */
-export function serializeViewQuery(query: ViewQuery): string {
+/** "/docs/" and "docs" name the same folder. */
+function trimSlashes(path: string): string {
+  return path.replace(/^\/+|\/+$/g, "");
+}
+
+/**
+ * Paths become nodes, in link order. Only the first HIDDEN_NODES_MAX values
+ * are read, so a hand-edited link cannot make parsing unbounded; over-long,
+ * unknown and repeated paths are dropped.
+ */
+function parseHiddenNodes(values: readonly string[], nodeByPath: ReadonlyMap<string, number>): ReadonlySet<number> {
+  const hidden = new Set<number>();
+  for (const value of values.slice(0, HIDDEN_NODES_MAX)) {
+    if (value.length > HIDDEN_PATH_LENGTH_MAX) continue;
+    const node = nodeByPath.get(trimSlashes(value));
+    if (node !== undefined) hidden.add(node);
+  }
+  assert(hidden.size <= HIDDEN_NODES_MAX, "the hidden set is bounded");
+  assert(!hidden.has(0), "the root has no path, so no link can hide it");
+  return hidden;
+}
+
+/** Returns "" for the default view, otherwise "?..." with only non-default values. `paths` names hidden nodes. */
+export function serializeViewQuery(query: ViewQuery, paths: readonly string[]): string {
   const { filters } = query;
   const parameters = new URLSearchParams();
   if (filters.sizeMode !== DEFAULT_FILTERS.sizeMode) parameters.set(PARAMETER.size, filters.sizeMode);
@@ -137,6 +168,12 @@ export function serializeViewQuery(query: ViewQuery): string {
   if (include !== "") parameters.set(PARAMETER.include, include);
   const exclude = patternSource(filters.exclude);
   if (exclude !== "") parameters.set(PARAMETER.exclude, exclude);
+  assert(filters.hiddenNodes.size <= HIDDEN_NODES_MAX, "a link can carry every hidden node");
+  for (const node of filters.hiddenNodes) {
+    const path = paths[node] ?? "";
+    assert(path !== "", "hidden nodes have a path");
+    parameters.append(PARAMETER.hidden, path);
+  }
   if (query.zoomPath !== "") parameters.set(PARAMETER.zoom, query.zoomPath);
   if (query.fileView !== DEFAULT_FILE_VIEW) parameters.set(PARAMETER.files, query.fileView);
   // "/" and "," are legal in a query string; leaving them unescaped keeps shared links readable.

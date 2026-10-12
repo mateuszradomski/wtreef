@@ -10,6 +10,7 @@ import { createControls, type Controls, type ControlsCallbacks, syncControls } f
 import { append, element } from "./dom.ts";
 import { type FileView, withFolderExpanded } from "./file-tree.ts";
 import { createFilterSection, type FilterSectionCallbacks, syncFilterSection } from "./filter-section.ts";
+import { buildHideableNodeByPath, nearestShownAncestor } from "./hidden.ts";
 import { hitTest, isDirectoryFrameHit, NO_NODE } from "./hit.ts";
 import { chainEnd, chainTop, computeLayout, createLayout, type Layout, LayoutFlag } from "./layout.ts";
 import {
@@ -196,8 +197,10 @@ function createState(data: PullRequestData, search: string): ViewState {
   const query = parseViewQuery(search, {
     typeKeys: new Set(index.typeBuckets.map((bucket) => bucket.key)),
     statusMask: presentStatusMask(index),
+    nodeByPath: buildHideableNodeByPath(tree, index.paths),
   });
-  const zoomNode = Math.max(0, findDirectoryByPath(tree, index, query.zoomPath));
+  // A link can zoom into a folder it also hides; the view opens on the deepest folder still shown.
+  const zoomNode = nearestShownAncestor(tree, query.filters.hiddenNodes, Math.max(0, findDirectoryByPath(tree, index, query.zoomPath)));
   return {
     data,
     tree,
@@ -320,7 +323,7 @@ function runDomUpdates(view: View): void {
   }
   if (state.urlDirty) {
     const zoomPath = state.index.paths[state.zoomNode] ?? "";
-    const query = serializeViewQuery({ filters: state.filters, zoomPath, fileView: state.fileView });
+    const query = serializeViewQuery({ filters: state.filters, zoomPath, fileView: state.fileView }, state.index.paths);
     history.replaceState(history.state, "", `${window.location.pathname}${query}`);
     state.urlDirty = false;
   }
